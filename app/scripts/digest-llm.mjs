@@ -3,7 +3,7 @@
 // configured; otherwise a deterministic fallback lists the recent filings so
 // the surface is never empty.
 //
-// Usage: node app/scripts/digest-llm.mjs --slug <workspace>
+// Usage: node app/scripts/digest-llm.mjs
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,8 +17,8 @@ import {
   parseXray,
 } from "@basis/schema";
 import { isLlmConfigured, llmConfig, reasoningEffort, resolveModel } from "./llm.mjs";
-import { arg, readJsonMaybe, tsvCell } from "./lib/cli.mjs";
-import { resolveWorkspaceDir } from "./lib/workspace-dir.mjs";
+import { readJsonMaybe, tsvCell } from "./lib/cli.mjs";
+import { ensureDataDir } from "./lib/data-dir.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -95,10 +95,7 @@ function buildPrompt({ alerts, xray, portfolio, watchlist, retryErrors }) {
 }
 
 async function main() {
-  const slug = arg("slug");
-  if (!slug) fail("usage: digest-llm.mjs --slug <workspace>");
-  const dir = resolveWorkspaceDir(REPO_ROOT, slug);
-  if (!fs.existsSync(dir)) fail(`workspace not found: ${slug}`);
+  const dir = ensureDataDir(REPO_ROOT);
 
   const alerts = recentAlerts(parseAlerts(readJsonMaybe(path.join(dir, "alerts.json"))));
   const portfolio = parsePortfolio(readJsonMaybe(path.join(dir, "portfolio.json")));

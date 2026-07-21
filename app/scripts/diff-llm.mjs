@@ -4,7 +4,7 @@
 // matter" summary back onto the alert. Diff-first keeps token spend sane: we
 // only send the extracted sections, not whole filings.
 //
-// Usage: node app/scripts/diff-llm.mjs --slug <workspace>
+// Usage: node app/scripts/diff-llm.mjs
 // Exit codes: 0 ok, 1 unexpected, 2 domain failure, 3 LLM not configured.
 import fs from "node:fs";
 import path from "node:path";
@@ -12,8 +12,8 @@ import { fileURLToPath } from "node:url";
 import { generateText } from "ai";
 import { parseAlerts } from "@basis/schema";
 import { isLlmConfigured, llmConfig, reasoningEffort, resolveModel } from "./llm.mjs";
-import { arg, readJsonMaybe, readMaybe, tsvCell } from "./lib/cli.mjs";
-import { resolveWorkspaceDir } from "./lib/workspace-dir.mjs";
+import { readJsonMaybe, readMaybe, tsvCell } from "./lib/cli.mjs";
+import { ensureDataDir } from "./lib/data-dir.mjs";
 import { extractItem, htmlToText, truncate } from "./lib/filings.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -61,10 +61,7 @@ function sectionsFor(text, form) {
 
 async function main() {
   if (!isLlmConfigured()) fail("No model configured.", 3);
-  const slug = arg("slug");
-  if (!slug) fail("usage: diff-llm.mjs --slug <workspace>");
-  const dir = resolveWorkspaceDir(REPO_ROOT, slug);
-  if (!fs.existsSync(dir)) fail(`workspace not found: ${slug}`);
+  const dir = ensureDataDir(REPO_ROOT);
 
   const alertsFile = path.join(dir, "alerts.json");
   const alerts = parseAlerts(readJsonMaybe(alertsFile));

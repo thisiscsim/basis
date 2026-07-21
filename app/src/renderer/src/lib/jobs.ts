@@ -3,8 +3,8 @@ import { useApp, type JobId } from "../store";
 
 /**
  * Run one engine-script job: flips the store's job state, mirrors the
- * script's PHASE/PROGRESS stream while it runs, reloads the workspace on
- * success (scripts write workspace files), and surfaces the outcome as a
+ * script's PHASE/PROGRESS stream while it runs, reloads the data folder on
+ * success (scripts write the data files), and surfaces the outcome as a
  * notice. Concurrent duplicate runs are ignored.
  */
 export async function runJob(job: JobId, invoke: () => Promise<JobResult>): Promise<boolean> {
@@ -17,7 +17,7 @@ export async function runJob(job: JobId, invoke: () => Promise<JobResult>): Prom
     const res = await invoke();
     const s = useApp.getState();
     if (res.ok) {
-      await s.reloadWorkspace();
+      await s.reloadData();
       if (res.output) s.pushNotice("info", res.output);
       return true;
     }

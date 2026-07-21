@@ -71,16 +71,3 @@ export function SettingSelect({
     </span>
   );
 }
-
-export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }): JSX.Element {
-  return (
-    <button
-      className={`switch ${on ? "on" : ""}`}
-      role="switch"
-      aria-checked={on}
-      onClick={() => onChange(!on)}
-    >
-      <span className="switch-knob" />
-    </button>
-  );
-}

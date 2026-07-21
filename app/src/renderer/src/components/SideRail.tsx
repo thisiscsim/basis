@@ -6,15 +6,14 @@ import { IpsModal, PortfolioModal } from "./editors";
 
 const TICKER_RE = /^[A-Z][A-Z0-9.-]{0,11}$/;
 
-export function WorkspaceRail(): JSX.Element {
-  const ws = useApp((s) => s.ws);
-  const slug = useApp((s) => s.slug);
+export function SideRail(): JSX.Element {
+  const data = useApp((s) => s.data);
   const saveWatchlist = useApp((s) => s.saveWatchlist);
   const pushNotice = useApp((s) => s.pushNotice);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<"portfolio" | "ips" | null>(null);
 
-  if (!ws || !slug) return <aside className="left-rail" />;
+  if (!data) return <aside className="left-rail" />;
 
   const addTicker = async () => {
     const ticker = draft.toUpperCase().trim();
@@ -23,21 +22,21 @@ export function WorkspaceRail(): JSX.Element {
       pushNotice("error", `"${ticker}" doesn't look like a ticker symbol.`);
       return;
     }
-    if (ws.watchlist.entries.some((e) => e.ticker === ticker)) {
+    if (data.watchlist.entries.some((e) => e.ticker === ticker)) {
       setDraft("");
       return;
     }
     setDraft("");
     await saveWatchlist({
-      ...ws.watchlist,
-      entries: [...ws.watchlist.entries, { ticker, addedAt: new Date().toISOString() }],
+      ...data.watchlist,
+      entries: [...data.watchlist.entries, { ticker, addedAt: new Date().toISOString() }],
     });
   };
 
   const removeTicker = (ticker: string) =>
     saveWatchlist({
-      ...ws.watchlist,
-      entries: ws.watchlist.entries.filter((e) => e.ticker !== ticker),
+      ...data.watchlist,
+      entries: data.watchlist.entries.filter((e) => e.ticker !== ticker),
     });
 
   return (
@@ -61,9 +60,9 @@ export function WorkspaceRail(): JSX.Element {
               Add
             </Button>
           </div>
-          {ws.watchlist.entries.length > 0 && (
+          {data.watchlist.entries.length > 0 && (
             <div className="clip-list clip-list-capped">
-              {ws.watchlist.entries.map((e) => (
+              {data.watchlist.entries.map((e) => (
                 <div key={e.ticker} className="clip-row" title={e.name ?? e.ticker}>
                   <span className="name">
                     {e.ticker}
@@ -91,12 +90,12 @@ export function WorkspaceRail(): JSX.Element {
         </div>
         <div className="rail-body">
           <p className="rail-note">
-            {ws.portfolio.holdings.length === 0
+            {data.portfolio.holdings.length === 0
               ? "No holdings entered yet."
-              : `${ws.portfolio.holdings.length} holding${ws.portfolio.holdings.length === 1 ? "" : "s"}: ${ws.portfolio.holdings
+              : `${data.portfolio.holdings.length} holding${data.portfolio.holdings.length === 1 ? "" : "s"}: ${data.portfolio.holdings
                   .slice(0, 6)
                   .map((h) => h.ticker)
-                  .join(", ")}${ws.portfolio.holdings.length > 6 ? "…" : ""}`}
+                  .join(", ")}${data.portfolio.holdings.length > 6 ? "…" : ""}`}
           </p>
           <Button variant="secondary" size="sm" icon="input-form" onClick={() => setEditing("portfolio")}>
             Edit holdings
@@ -111,9 +110,9 @@ export function WorkspaceRail(): JSX.Element {
         </div>
         <div className="rail-body">
           <p className="rail-note">
-            {ws.ips.rules.length === 0
+            {data.ips.rules.length === 0
               ? "No rules written yet — the coach argues from these."
-              : `${ws.ips.rules.length} rule${ws.ips.rules.length === 1 ? "" : "s"} on record.`}
+              : `${data.ips.rules.length} rule${data.ips.rules.length === 1 ? "" : "s"} on record.`}
           </p>
           <Button variant="secondary" size="sm" icon="input-form" onClick={() => setEditing("ips")}>
             Edit IPS
@@ -131,25 +130,25 @@ export function WorkspaceRail(): JSX.Element {
             job="monitor"
             label="Update filings"
             icon="arrow-rotate"
-            disabled={ws.watchlist.entries.length === 0}
+            disabled={data.watchlist.entries.length === 0}
             disabledHint="Add tickers to the watchlist first"
-            onRun={() => runJob("monitor", () => window.api.startMonitor(slug))}
+            onRun={() => runJob("monitor", () => window.api.startMonitor())}
           />
           <JobButton
             job="xray"
             label="Run portfolio X-ray"
             icon="form-rectangle"
-            disabled={ws.portfolio.holdings.length === 0}
+            disabled={data.portfolio.holdings.length === 0}
             disabledHint="Enter holdings first"
-            onRun={() => runJob("xray", () => window.api.startXray(slug))}
+            onRun={() => runJob("xray", () => window.api.startXray())}
           />
           <JobButton
             job="digest"
             label="Build digest"
             icon="clapboard-sparkle"
-            disabled={ws.alerts.alerts.length === 0 && !ws.xray}
+            disabled={data.alerts.alerts.length === 0 && !data.xray}
             disabledHint="Update filings or run the X-ray first"
-            onRun={() => runJob("digest", () => window.api.startDigest(slug))}
+            onRun={() => runJob("digest", () => window.api.startDigest())}
           />
         </div>
       </section>

@@ -5,10 +5,10 @@ dist/
 *.log
 
 # User data lives in ~/Documents/Basis (configurable), never in the repo.
-# Any local workspaces/ or .cache/ (e.g. from a dev BASIS_HOME override) are
+# Any local data/ or .cache/ (e.g. from a dev BASIS_DATA_DIR override) are
 # ignored. NOTE: root-anchored on purpose — an unanchored pattern would also
 # match nested source directories.
-/workspaces/
+/data/
 /.cache/
 # Legacy local data from the video-studio era (still on dev machines).
 /projects/

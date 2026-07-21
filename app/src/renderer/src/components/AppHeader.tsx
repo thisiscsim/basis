@@ -1,35 +1,27 @@
-import { useApp, type WorkspaceTab } from "../store";
+import { useApp, type AppTab } from "../store";
 import { SettingsButton } from "./SettingsModal";
 import { Icon } from "./ui";
 
-const TABS: { id: WorkspaceTab; label: string }[] = [
+const TABS: { id: AppTab; label: string }[] = [
   { id: "digest", label: "Digest" },
   { id: "research", label: "Research" },
   { id: "coach", label: "Coach" },
 ];
 
-export function WorkspaceHeader(): JSX.Element {
-  const meta = useApp((s) => s.ws?.meta ?? null);
-  const slug = useApp((s) => s.slug);
+export function AppHeader(): JSX.Element {
   const tab = useApp((s) => s.tab);
   const setTab = useApp((s) => s.setTab);
-  const goHome = useApp((s) => s.goHome);
-
-  const title = meta?.title || slug || "Untitled";
 
   return (
     <header className="ws-header">
       <div className="ws-header-left">
-        <button className="brand" onClick={goHome} title="Back to workspaces">
+        <span className="brand">
           <Icon name="basis-logomark" size={20} />
-          <span className="home-wordmark">Basis</span>
-        </button>
-        <span className="ws-header-title" title={title}>
-          {title}
+          <span className="wordmark">Basis</span>
         </span>
       </div>
 
-      <nav className="ws-tabs" role="tablist" aria-label="Workspace views">
+      <nav className="ws-tabs" role="tablist" aria-label="Views">
         {TABS.map((t) => (
           <button
             key={t.id}

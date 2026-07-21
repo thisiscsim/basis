@@ -5,7 +5,7 @@ import { useApp } from "../store";
 beforeEach(() => {
   useApp.setState({
     notices: [],
-    reloadWorkspace: vi.fn(),
+    reloadData: vi.fn(),
     jobs: {
       brief: { running: false, phase: "", progress: 0 },
       xray: { running: false, phase: "", progress: 0 },
@@ -16,9 +16,9 @@ beforeEach(() => {
 });
 
 describe("runJob", () => {
-  it("flips job state, reloads the workspace on success, and surfaces the output", async () => {
+  it("flips job state, reloads the data on success, and surfaces the output", async () => {
     const reload = vi.fn();
-    useApp.setState({ reloadWorkspace: reload });
+    useApp.setState({ reloadData: reload });
     let midRun = { running: false };
     const ok = await runJob("monitor", async () => {
       midRun = useApp.getState().jobs.monitor;

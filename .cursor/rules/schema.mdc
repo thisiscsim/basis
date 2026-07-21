@@ -1,12 +1,12 @@
 ---
-description: Workspace schema package rules (validation boundary, bounds, rebuild)
+description: Data schema package rules (validation boundary, bounds, rebuild)
 globs: packages/schema/**
 alwaysApply: false
 ---
 
-# Workspace schemas (packages/schema)
+# Data schemas (packages/schema)
 
-The schemas are a **security boundary**: workspace files are a shareable interchange format and LLMs author them. Every field must stay hostile-input-safe.
+The schemas are a **security boundary**: the data files are a shareable interchange format and LLMs author them. Every field must stay hostile-input-safe.
 
 - Numerics: `.finite()` + explicit bounds. Unbounded values poison downstream math (JSON `1e400` parses to `Infinity`).
 - URLs (`sourceUrl`, alert `url`, source lists): `HttpsUrlSchema` — these render as clickable links and reach `shell.openExternal`; https only.

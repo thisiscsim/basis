@@ -11,4 +11,4 @@ alwaysApply: true
   `git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/thisiscsim/basis.git HEAD:<branch>`
 - PR flow: open with a Summary + Test plan, wait for `gh pr checks <n> --watch`, merge with `--merge --delete-branch`, then ff-sync local `main` from the same HTTPS remote.
 - Call out in the summary when a change requires restarting `npm run dev` (main-process/preload/engine-script changes — HMR only covers the renderer).
-- Generated artifacts live under the user's `~/Documents/Basis` (never the repo). `/workspaces/` and `/.cache/` in the repo root are gitignored, root-anchored on purpose.
+- Generated artifacts live under the user's `~/Documents/Basis` (never the repo). `/data/` and `/.cache/` in the repo root are gitignored, root-anchored on purpose.

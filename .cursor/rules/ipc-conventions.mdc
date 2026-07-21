@@ -7,8 +7,8 @@ alwaysApply: false
 # Main process & IPC conventions
 
 ## Every renderer-supplied path/id is untrusted
-- Filesystem access keyed by a slug MUST go through `safeWorkspacePath()` (it throws on escape; it compares against `root + sep`).
-- Validate id shape at the IPC boundary before spawning scripts: `/^[a-z0-9][a-z0-9_-]{0,63}$/i` (see `runScript`). Tickers validate against `TickerSchema`; brief filenames against `BRIEF_FILE_RE` + `basename(file) !== file` rejection.
+- Filesystem access keyed by a renderer-supplied filename MUST go through `safeDataPath()` (it throws on escape; it compares against `root + sep`).
+- Tickers validate against `TickerSchema` at the IPC boundary; brief filenames against `BRIEF_FILE_RE` + `basename(file) !== file` rejection.
 - External URLs only open via `isSafeExternalUrl` (https-only) — file://, smb://, and custom schemes are RCE-adjacent.
 
 ## Result shape
@@ -33,4 +33,4 @@ ipcMain.handle("thing:do", (_e, slug: string) => {
 
 ## Remember
 - Main-process changes need a dev-app restart (renderer HMR does not reload main/preload). Say so in the PR/summary.
-- App writes to workspace files must call `markSelfWrite(slug)` (done inside `writeDoc`/`touchMeta`) or the file watcher echoes a reload that clobbers UI state. Engine-script writes intentionally do NOT mark, so the UI reloads their results.
+- App writes to data files must call `markSelfWrite()` (done inside `writeDoc`) or the file watcher echoes a reload that clobbers UI state. Engine-script writes intentionally do NOT mark, so the UI reloads their results.

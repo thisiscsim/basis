@@ -52,7 +52,7 @@ function fromDraft(d: HoldingDraft): Holding | string {
 }
 
 export function PortfolioModal({ onClose }: { onClose: () => void }): JSX.Element {
-  const portfolio = useApp((s) => s.ws?.portfolio ?? null);
+  const portfolio = useApp((s) => s.data?.portfolio ?? null);
   const savePortfolio = useApp((s) => s.savePortfolio);
   const [rows, setRows] = useState<HoldingDraft[]>(() => (portfolio?.holdings ?? []).map(toDraft));
   const [error, setError] = useState<string | null>(null);
@@ -166,7 +166,7 @@ export function PortfolioModal({ onClose }: { onClose: () => void }): JSX.Elemen
 }
 
 export function IpsModal({ onClose }: { onClose: () => void }): JSX.Element {
-  const ips = useApp((s) => s.ws?.ips ?? null);
+  const ips = useApp((s) => s.data?.ips ?? null);
   const saveIps = useApp((s) => s.saveIps);
   const [goals, setGoals] = useState(ips?.goals ?? "");
   const [horizon, setHorizon] = useState(ips?.horizonYears != null ? String(ips.horizonYears) : "");

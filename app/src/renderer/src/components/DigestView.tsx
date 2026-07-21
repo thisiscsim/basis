@@ -1,15 +1,15 @@
 import { useState } from "react";
 import type { Alert } from "@basis/schema";
 import { useApp } from "../store";
-import { relativeTime } from "../lib/home";
+import { relativeTime } from "../lib/time";
 import { Badge, Button, Icon } from "./ui";
 
 /** Digest surface: latest digest, portfolio x-ray, and the filing-alert inbox. */
 export function DigestView(): JSX.Element {
-  const ws = useApp((s) => s.ws);
-  if (!ws) return <div className="surface" />;
+  const data = useApp((s) => s.data);
+  if (!data) return <div className="surface" />;
 
-  const unread = ws.alerts.alerts.filter((a) => !a.read).length;
+  const unread = data.alerts.alerts.filter((a) => !a.read).length;
 
   return (
     <div className="surface">
@@ -21,14 +21,14 @@ export function DigestView(): JSX.Element {
           <h2 className="card-title">Filing alerts</h2>
           {unread > 0 && <MarkAllRead />}
         </div>
-        {ws.alerts.alerts.length === 0 ? (
+        {data.alerts.alerts.length === 0 ? (
           <p className="empty-note">
             Nothing yet. Add tickers to the watchlist and run <strong>Update filings</strong> — new SEC
             filings land here, with "what changed" summaries when a model is configured.
           </p>
         ) : (
           <div className="alert-list">
-            {ws.alerts.alerts.slice(0, 50).map((alert) => (
+            {data.alerts.alerts.slice(0, 50).map((alert) => (
               <AlertRow key={alert.id} alert={alert} />
             ))}
           </div>
@@ -39,7 +39,7 @@ export function DigestView(): JSX.Element {
 }
 
 function DigestCard(): JSX.Element {
-  const digest = useApp((s) => s.ws?.digest ?? null);
+  const digest = useApp((s) => s.data?.digest ?? null);
 
   return (
     <section className="card">
@@ -85,7 +85,7 @@ function DigestCard(): JSX.Element {
 }
 
 function XrayCard(): JSX.Element {
-  const xray = useApp((s) => s.ws?.xray ?? null);
+  const xray = useApp((s) => s.data?.xray ?? null);
 
   return (
     <section className="card">
@@ -137,15 +137,15 @@ function XrayCard(): JSX.Element {
 }
 
 function MarkAllRead(): JSX.Element {
-  const ws = useApp((s) => s.ws);
+  const data = useApp((s) => s.data);
   const saveAlerts = useApp((s) => s.saveAlerts);
-  if (!ws) return <span />;
+  if (!data) return <span />;
   return (
     <Button
       variant="ghost"
       size="sm"
       onClick={() =>
-        void saveAlerts({ ...ws.alerts, alerts: ws.alerts.alerts.map((a) => ({ ...a, read: true })) })
+        void saveAlerts({ ...data.alerts, alerts: data.alerts.alerts.map((a) => ({ ...a, read: true })) })
       }
     >
       Mark all read
@@ -154,16 +154,16 @@ function MarkAllRead(): JSX.Element {
 }
 
 function AlertRow({ alert }: { alert: Alert }): JSX.Element {
-  const ws = useApp((s) => s.ws);
+  const data = useApp((s) => s.data);
   const saveAlerts = useApp((s) => s.saveAlerts);
   const [expanded, setExpanded] = useState(false);
 
   const toggle = () => {
     setExpanded((v) => !v);
-    if (!alert.read && ws) {
+    if (!alert.read && data) {
       void saveAlerts({
-        ...ws.alerts,
-        alerts: ws.alerts.alerts.map((a) => (a.id === alert.id ? { ...a, read: true } : a)),
+        ...data.alerts,
+        alerts: data.alerts.alerts.map((a) => (a.id === alert.id ? { ...a, read: true } : a)),
       });
     }
   };

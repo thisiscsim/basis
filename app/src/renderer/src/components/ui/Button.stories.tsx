@@ -4,7 +4,7 @@ import { Button } from "./Button";
 const meta = {
   title: "UI Kit/Button",
   component: Button,
-  args: { children: "New workspace", variant: "primary", size: "sm" },
+  args: { children: "Add to watchlist", variant: "primary", size: "sm" },
   argTypes: {
     variant: { control: "radio", options: ["primary", "secondary", "ghost"] },
     size: { control: "radio", options: ["sm", "md"] },
@@ -21,7 +21,7 @@ export const Secondary: Story = { args: { variant: "secondary", children: "Back"
 
 export const Ghost: Story = { args: { variant: "ghost", children: "Presets" } };
 
-export const WithIcon: Story = { args: { icon: "plus-large", children: "New workspace" } };
+export const WithIcon: Story = { args: { icon: "plus-large", children: "Add to watchlist" } };
 
 export const Disabled: Story = { args: { disabled: true } };
 

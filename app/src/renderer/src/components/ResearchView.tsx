@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Brief } from "@basis/schema";
 import { useApp } from "../store";
 import { runJob } from "../lib/jobs";
-import { relativeTime } from "../lib/home";
+import { relativeTime } from "../lib/time";
 import { Badge, Button, Icon } from "./ui";
 
 const TICKER_RE = /^[A-Z][A-Z0-9.-]{0,11}$/;
@@ -12,8 +12,7 @@ const TICKER_RE = /^[A-Z][A-Z0-9.-]{0,11}$/;
  * verified citation) and read them with a sources rail.
  */
 export function ResearchView(): JSX.Element {
-  const ws = useApp((s) => s.ws);
-  const slug = useApp((s) => s.slug);
+  const data = useApp((s) => s.data);
   const openBriefFile = useApp((s) => s.openBriefFile);
   const openBrief = useApp((s) => s.openBrief);
   const setOpenBrief = useApp((s) => s.setOpenBrief);
@@ -22,20 +21,20 @@ export function ResearchView(): JSX.Element {
   const [ticker, setTicker] = useState("");
 
   // Auto-open the newest brief when none is selected (e.g. right after generation).
-  const newest = ws?.briefs[0]?.file ?? null;
+  const newest = data?.briefs[0]?.file ?? null;
   useEffect(() => {
-    if (!slug || openBriefFile || !newest) return;
+    if (openBriefFile || !newest) return;
     let alive = true;
     window.api
-      ?.loadBrief(slug, newest)
+      ?.loadBrief(newest)
       .then((b) => alive && b && useApp.getState().setOpenBrief(newest, b))
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [slug, newest, openBriefFile]);
+  }, [newest, openBriefFile]);
 
-  if (!ws || !slug) return <div className="surface" />;
+  if (!data) return <div className="surface" />;
 
   const generate = async () => {
     const t = ticker.toUpperCase().trim();
@@ -45,11 +44,11 @@ export function ResearchView(): JSX.Element {
     }
     setTicker("");
     setOpenBrief(null, null); // the effect opens the fresh brief after reload
-    await runJob("brief", () => window.api.startBrief(slug, t));
+    await runJob("brief", () => window.api.startBrief(t));
   };
 
   const open = async (file: string) => {
-    const brief = await window.api.loadBrief(slug, file);
+    const brief = await window.api.loadBrief(file);
     if (brief) setOpenBrief(file, brief);
     else pushNotice("error", "Couldn't read that brief (invalid or missing file).");
   };
@@ -82,14 +81,14 @@ export function ResearchView(): JSX.Element {
             <div className="bar-fill" style={{ width: `${briefJob.progress}%` }} />
           </div>
         )}
-        {ws.briefs.length === 0 ? (
+        {data.briefs.length === 0 ? (
           <p className="empty-note">
             No briefs yet. A brief is a structured read of the company's own SEC filings — business model,
             financial trends, competition, the bear case, red flags — with every claim quoting its source.
           </p>
         ) : (
           <div className="brief-list">
-            {ws.briefs.map((b) => (
+            {data.briefs.map((b) => (
               <button
                 key={b.file}
                 className={`brief-item ${openBriefFile === b.file ? "active" : ""}`}
@@ -107,7 +106,7 @@ export function ResearchView(): JSX.Element {
       </aside>
 
       <div className="brief-view">
-        {openBrief ? <BriefReader brief={openBrief} /> : <EmptyBrief hasAny={ws.briefs.length > 0} />}
+        {openBrief ? <BriefReader brief={openBrief} /> : <EmptyBrief hasAny={data.briefs.length > 0} />}
       </div>
     </div>
   );

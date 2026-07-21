@@ -26,7 +26,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
   const setTheme = useApp((s) => s.setTheme);
   const [tab, setTab] = useState<SettingsTab>("general");
   const [settings, setSettings] = useState<PublicSettings>(DEFAULTS);
-  const [workspacesDir, setWorkspacesDir] = useState<string>("");
+  const [dataDir, setDataDir] = useState<string>("");
   const [locks, setLocks] = useState({ modelLocked: false, keyLocked: false });
   const [keyDraft, setKeyDraft] = useState("");
   const [keySaved, setKeySaved] = useState(false);
@@ -40,8 +40,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
       .then(setSettings)
       .catch(() => {});
     window.api
-      ?.getWorkspacesDir()
-      .then(setWorkspacesDir)
+      ?.getDataDir()
+      .then(setDataDir)
       .catch(() => {});
     window.api
       ?.llmInfo()
@@ -91,12 +91,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
               </SettingRow>
               <Divider />
               <SettingRow
-                title="Save all workspaces to"
-                sub={workspacesDir || "…"}
+                title="Store your data in"
+                sub={dataDir || "…"}
                 subTitle="Click to reveal in Finder"
-                onSubClick={() => void window.api.revealWorkspacesDir()}
+                onSubClick={() => void window.api.revealDataDir()}
               >
-                <button className="settings-select-btn" onClick={() => void window.api.pickWorkspacesDir()}>
+                <button className="settings-select-btn" onClick={() => void window.api.pickDataDir()}>
                   Change directory
                 </button>
               </SettingRow>
@@ -207,7 +207,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
   );
 }
 
-/** Gear button + modal in one — drop it into any bar (Home, workspace header). */
+/** Gear button + modal in one — drop it into the app header. */
 export function SettingsButton(): JSX.Element {
   const [open, setOpen] = useState(false);
   return (

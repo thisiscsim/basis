@@ -57,13 +57,13 @@ const BASE_PERSONA = [
   "- Define jargon in-line the first time you use it. Keep answers tight; go deeper only when asked.",
 ].join("\n");
 
-export interface WorkspaceContext {
+export interface CoachContext {
   ips: Ips;
   portfolio: Portfolio;
   xray: Xray | null;
 }
 
-export function chatSystemPrompt(mode: ChatMode, ctx: WorkspaceContext | null): string {
+export function chatSystemPrompt(mode: ChatMode, ctx: CoachContext | null): string {
   if (mode === "tutor" || !ctx) {
     return `${BASE_PERSONA}\n\nRole right now: tutor. Teach whatever the user asks about investing, markets, and personal finance mechanics, calibrated to a smart beginner.`;
   }
@@ -98,7 +98,7 @@ export function chatSystemPrompt(mode: ChatMode, ctx: WorkspaceContext | null): 
  */
 export async function streamChat(opts: {
   mode: ChatMode;
-  context: WorkspaceContext | null;
+  context: CoachContext | null;
   messages: ChatMessage[];
   signal: AbortSignal;
   onDelta: (text: string) => void;
@@ -133,7 +133,7 @@ export interface GateResult {
  * and return a verdict. Single non-streaming call — the renderer shows it in
  * a blocking dialog before the user proceeds.
  */
-export async function evaluateGate(trade: string, ctx: WorkspaceContext): Promise<GateResult> {
+export async function evaluateGate(trade: string, ctx: CoachContext): Promise<GateResult> {
   try {
     const { text } = await generateText({
       model: resolveModel(),
