@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Alerts, Brief, Digest, Ips, Portfolio, Watchlist, Xray } from "@basis/schema";
+import type { Alerts, Brief, Digest, Ideas, Ips, Portfolio, Watchlist, Xray } from "@basis/schema";
 import type { BriefSummary, ChatMessage } from "../../preload";
 
 export type AppTab = "digest" | "research" | "coach";
@@ -73,6 +73,7 @@ export interface AppData {
   xray: Xray | null;
   digest: Digest | null;
   briefs: BriefSummary[];
+  ideas: Ideas;
 }
 
 export interface ChatEntry extends ChatMessage {

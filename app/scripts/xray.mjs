@@ -9,10 +9,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { generateText } from "ai";
-import { parsePortfolio, parseXray } from "@basis/schema";
+import { parseIps, parsePortfolio, parseXray } from "@basis/schema";
 import { isLlmConfigured, llmConfig, reasoningEffort, resolveModel } from "./llm.mjs";
 import { readJsonMaybe, round, tsvCell } from "./lib/cli.mjs";
 import { deriveWeights } from "./lib/portfolio.mjs";
+import { computeDrift } from "./lib/drift.mjs";
+import { fetchDailyCloses, latestClose } from "./lib/prices.mjs";
 import { ensureDataDir } from "./lib/data-dir.mjs";
 import { cikForTicker, edgarCacheDir, getSubmissions } from "./lib/edgar.mjs";
 
@@ -26,14 +28,33 @@ const fail = (msg, code = 2) => {
   process.exit(code);
 };
 
+const pricesLabel = () => (process.env.BASIS_PRICES_PROVIDER === "tiingo" ? "Tiingo" : "Yahoo");
+
 async function main() {
   const dir = ensureDataDir(REPO_ROOT);
 
   const portfolio = parsePortfolio(readJsonMaybe(path.join(dir, "portfolio.json")));
   if (portfolio.holdings.length === 0) fail("portfolio.json has no holdings — add positions first");
-
-  const { weighting, weights } = deriveWeights(portfolio.holdings);
+  const ips = parseIps(readJsonMaybe(path.join(dir, "ips.json")));
   const cacheDir = edgarCacheDir(REPO_ROOT);
+
+  // Market-value weighting beats everything when every holding has shares and
+  // a resolvable EOD close; otherwise fall back to the declared-data ladder.
+  let { weighting, weights } = deriveWeights(portfolio.holdings);
+  const allHaveShares = portfolio.holdings.every((h) => typeof h.shares === "number" && h.shares > 0);
+  if (allHaveShares) {
+    phase(`fetching closes (${pricesLabel()})`);
+    const values = [];
+    for (const h of portfolio.holdings) {
+      const close = latestClose(await fetchDailyCloses(h.ticker, cacheDir))?.close;
+      values.push(close != null ? h.shares * close : null);
+    }
+    const total = values.reduce((s, v) => s + (v ?? 0), 0);
+    if (total > 0 && values.every((v) => v != null)) {
+      weighting = "market";
+      weights = values.map((v) => (v / total) * 100);
+    }
+  }
 
   phase("classifying holdings by sector (EDGAR)");
   const sectors = [];
@@ -102,6 +123,26 @@ async function main() {
       `${unknownCount} holding(s) could not be classified (funds/ETFs and non-US listings have no EDGAR sector).`,
     );
 
+  // Drift vs the IPS target allocation (only when buckets have tickers assigned).
+  const weightsByTicker = {};
+  portfolio.holdings.forEach((h, i) => {
+    weightsByTicker[h.ticker] = (weightsByTicker[h.ticker] ?? 0) + weights[i];
+  });
+  const { drift, unassignedPct } = computeDrift(weightsByTicker, ips.targetAllocation);
+  const DRIFT_BAND_PCT = 5;
+  for (const row of drift) {
+    if (Math.abs(row.driftPct) > DRIFT_BAND_PCT) {
+      warnings.push(
+        `Drift: ${row.label} is at ~${row.actualPct}% vs your ${row.targetPct}% target (${row.driftPct > 0 ? "+" : ""}${row.driftPct} pts).`,
+      );
+    }
+  }
+  if (drift.length > 0 && unassignedPct > 10) {
+    warnings.push(
+      `~${unassignedPct}% of the portfolio isn't assigned to any IPS bucket — finish the mapping in the IPS editor for a real drift read.`,
+    );
+  }
+
   const xray = {
     version: 1,
     generatedAt: new Date().toISOString(),
@@ -110,6 +151,7 @@ async function main() {
     topHoldings,
     concentration: { top1Pct, top5Pct, sectorMaxPct },
     warnings: warnings.slice(0, 20),
+    drift,
   };
 
   if (isLlmConfigured()) {
@@ -126,7 +168,7 @@ async function main() {
           "",
           "=== DETERMINISTIC METRICS (ground truth) ===",
           JSON.stringify(
-            { weighting, bySector, topHoldings, concentration: xray.concentration, warnings },
+            { weighting, bySector, topHoldings, concentration: xray.concentration, warnings, drift },
             null,
             2,
           ),

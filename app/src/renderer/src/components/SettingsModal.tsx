@@ -19,6 +19,11 @@ const DEFAULTS: PublicSettings = {
   agentModel: "gpt-5.5",
   reasoningEffort: "low",
   hasAgentKey: false,
+  pricesProvider: "yahoo",
+  plaidEnv: "sandbox",
+  hasPricesKey: false,
+  hasPlaidCredentials: false,
+  plaidLinked: false,
 };
 
 export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
@@ -193,6 +198,78 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
                   Save
                 </button>
               </div>
+              <Divider />
+              <SettingRow
+                title="Price data"
+                sub="Daily closes for drift, idea grading, and the Lab. Yahoo Finance is free with no key; Tiingo needs a free API token."
+              >
+                <SettingSelect
+                  value={settings.pricesProvider}
+                  onChange={(v) => void update({ pricesProvider: v as AppSettings["pricesProvider"] })}
+                  options={[
+                    { value: "yahoo", label: "Yahoo Finance (free, no key)" },
+                    { value: "tiingo", label: "Tiingo (keyed)" },
+                  ]}
+                />
+              </SettingRow>
+              {settings.pricesProvider === "tiingo" && (
+                <KeyRow
+                  placeholder={
+                    settings.hasPricesKey
+                      ? "Tiingo token saved — enter a new one to replace it"
+                      : "Enter your Tiingo API token"
+                  }
+                  onSave={(v) => void update({ pricesApiKey: v || undefined })}
+                />
+              )}
+              <Divider />
+              <SettingRow
+                title="Broker sync (Plaid, read-only)"
+                sub={
+                  settings.plaidLinked
+                    ? "Broker linked. Sync from the Portfolio rail; unlink below."
+                    : "Bring your own Plaid credentials (free sandbox; Trial plan covers live use). Basis only ever reads holdings — it can never trade."
+                }
+              >
+                <SettingSelect
+                  value={settings.plaidEnv}
+                  onChange={(v) => void update({ plaidEnv: v as AppSettings["plaidEnv"] })}
+                  options={[
+                    { value: "sandbox", label: "Sandbox" },
+                    { value: "production", label: "Production" },
+                  ]}
+                />
+              </SettingRow>
+              <KeyRow
+                type="text"
+                placeholder={settings.plaidClientId ? settings.plaidClientId : "Plaid client ID"}
+                onSave={(v) => void update({ plaidClientId: v || undefined })}
+              />
+              <KeyRow
+                placeholder={
+                  settings.hasPlaidCredentials
+                    ? "Plaid secret saved — enter a new one to replace it"
+                    : "Plaid secret"
+                }
+                onSave={(v) => void update({ plaidSecret: v || undefined })}
+              />
+              {settings.plaidLinked && (
+                <SettingRow
+                  title="Linked broker item"
+                  sub="Removes the stored access token (and the item on Plaid's side)."
+                >
+                  <button
+                    className="settings-select-btn"
+                    onClick={async () => {
+                      await window.api.plaidUnlink();
+                      const next = await window.api.getSettings();
+                      setSettings(next);
+                    }}
+                  >
+                    Unlink
+                  </button>
+                </SettingRow>
+              )}
             </>
           )}
         </div>
@@ -203,6 +280,39 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Write-only secret input row: saved on Enter/click, never read back. */
+function KeyRow({
+  placeholder,
+  onSave,
+  type = "password",
+}: {
+  placeholder: string;
+  onSave: (value: string) => void;
+  type?: "password" | "text";
+}): JSX.Element {
+  const [draft, setDraft] = useState("");
+  const save = () => {
+    if (!draft.trim()) return;
+    onSave(draft.trim());
+    setDraft("");
+  };
+  return (
+    <div className="settings-key-row">
+      <input
+        className="settings-key-input"
+        type={type}
+        placeholder={placeholder}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && save()}
+      />
+      <button className="settings-select-btn" onClick={save} disabled={!draft.trim()}>
+        Save
+      </button>
     </div>
   );
 }

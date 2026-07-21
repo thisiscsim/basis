@@ -426,6 +426,40 @@
   color: var(--foreground-secondary);
 }
 
+.drift-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding-top: var(--space-4);
+}
+
+.drift-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground-primary);
+}
+
+.drift-meter {
+  position: relative;
+}
+
+/* Tick marking the IPS target inside the actual-weight meter. */
+.meter-target {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--foreground-primary);
+  opacity: 0.55;
+  z-index: 1;
+}
+
+.meter-pct.drift-off {
+  color: var(--foreground-danger);
+}
+
 .xray-warnings {
   margin: 0;
   padding-left: 18px;
@@ -901,6 +935,73 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-8);
+}
+
+.bucket-row {
+  display: grid;
+  grid-template-columns: 1fr 72px 1.4fr 24px;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* ---------- Idea log (track record) ---------- */
+.idea-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.idea-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--border-base);
+}
+
+.idea-row:last-child {
+  border-bottom: none;
+}
+
+.idea-row-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.idea-ticker {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground-primary);
+}
+
+.idea-when {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--foreground-muted);
+}
+
+.idea-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--foreground-secondary);
+}
+
+.idea-grade {
+  margin: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground-primary);
+}
+
+.idea-beat {
+  color: var(--foreground-accent);
+}
+
+.idea-lag {
+  color: var(--foreground-danger);
 }
 
 /* ---------- Settings dialog ---------- */

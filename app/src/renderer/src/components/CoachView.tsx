@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import type { Idea } from "@basis/schema";
 import { useApp, type ChatEntry } from "../store";
-import { Badge, Button, Icon } from "./ui";
+import { relativeTime } from "../lib/time";
+import { Badge, Button, Icon, Modal } from "./ui";
 
 type Mode = "tutor" | "coach";
 
@@ -16,6 +18,8 @@ export function CoachView(): JSX.Element {
   const [mode, setMode] = useState<Mode>("coach");
   const [draft, setDraft] = useState("");
   const [gateOpen, setGateOpen] = useState(false);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const ideaCount = useApp((s) => s.data?.ideas.ideas.length ?? 0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Stream plumbing: deltas append to the pending assistant message.
@@ -81,6 +85,11 @@ export function CoachView(): JSX.Element {
           </button>
         </div>
         <div className="coach-toolbar-right">
+          {ideaCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setRecordOpen(true)}>
+              Track record ({ideaCount})
+            </Button>
+          )}
           <Button variant="secondary" size="sm" icon="record" onClick={() => setGateOpen(true)}>
             I'm about to trade…
           </Button>
@@ -139,6 +148,74 @@ export function CoachView(): JSX.Element {
       </div>
 
       {gateOpen && <GateDialog onClose={() => setGateOpen(false)} />}
+      {recordOpen && <TrackRecordModal onClose={() => setRecordOpen(false)} />}
+    </div>
+  );
+}
+
+/**
+ * The honest mirror: every brief and gate decision, graded against what
+ * actually happened since (vs SPY). Grading refreshes on Update filings.
+ */
+function TrackRecordModal({ onClose }: { onClose: () => void }): JSX.Element {
+  const ideas = useApp((s) => s.data?.ideas.ideas ?? []);
+  return (
+    <Modal
+      title="Track record"
+      onClose={onClose}
+      footer={
+        <Button variant="primary" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      <p className="muted small">
+        Everything the system surfaced and every gate decision you made, with what happened after. Returns are
+        since-log vs SPY, refreshed by <strong>Update filings</strong>. The point is honesty, not
+        scorekeeping.
+      </p>
+      <div className="idea-list">
+        {ideas.map((idea) => (
+          <IdeaRow key={idea.id} idea={idea} />
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+function IdeaRow({ idea }: { idea: Idea }): JSX.Element {
+  const graded = idea.returnPct != null;
+  const beat = graded && idea.benchmarkReturnPct != null ? idea.returnPct! - idea.benchmarkReturnPct! : null;
+  return (
+    <div className="idea-row">
+      <div className="idea-row-top">
+        <Badge variant={idea.kind === "gate" ? "neutral" : "accent"}>
+          {idea.kind === "gate" ? (idea.verdict === "cancelled" ? "held off" : "proceeded") : idea.kind}
+        </Badge>
+        {idea.ticker && <span className="idea-ticker">{idea.ticker}</span>}
+        <span className="idea-when">{relativeTime(idea.at) ?? idea.at.slice(0, 10)}</span>
+      </div>
+      <p className="idea-text">{idea.text}</p>
+      {graded && (
+        <p className="idea-grade">
+          {idea.ticker}: {idea.returnPct! > 0 ? "+" : ""}
+          {idea.returnPct}% since logged
+          {idea.benchmarkReturnPct != null && (
+            <>
+              {" "}
+              · SPY {idea.benchmarkReturnPct > 0 ? "+" : ""}
+              {idea.benchmarkReturnPct}%
+              {beat != null && (
+                <span className={beat >= 0 ? "idea-beat" : "idea-lag"}>
+                  {" "}
+                  ({beat >= 0 ? "+" : ""}
+                  {Math.round(beat * 10) / 10} vs market)
+                </span>
+              )}
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }

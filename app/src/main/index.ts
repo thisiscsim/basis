@@ -28,6 +28,7 @@ import {
   parseAlerts,
   parseBrief,
   parseDigest,
+  parseIdeas,
   parseIps,
   parsePortfolio,
   parseWatchlist,
@@ -37,6 +38,15 @@ import {
   type Watchlist,
   type Xray,
 } from "@basis/schema";
+import {
+  createLinkToken,
+  exchangePublicToken,
+  fetchHoldings,
+  openLinkWindow,
+  type PlaidConfig,
+  removeItem,
+} from "./plaid";
+import { mapPlaidHoldings } from "./plaid-map";
 import { type ChatMessage, type ChatMode, evaluateGate, llmInfo, streamChat, type CoachContext } from "./llm";
 
 // In dev (electron-vite) __dirname is <repo>/app/out/main, so the repo root is
@@ -49,6 +59,7 @@ const XRAY_SCRIPT = join(SCRIPTS_DIR, "xray.mjs");
 const MONITOR_SCRIPT = join(SCRIPTS_DIR, "monitor.mjs");
 const DIFF_SCRIPT = join(SCRIPTS_DIR, "diff-llm.mjs");
 const DIGEST_SCRIPT = join(SCRIPTS_DIR, "digest-llm.mjs");
+const GRADE_IDEAS_SCRIPT = join(SCRIPTS_DIR, "grade-ideas.mjs");
 
 /** Guarded path inside the single data dir (brief filenames etc. are untrusted). */
 function safeDataPath(...rel: string[]): string {
@@ -103,6 +114,8 @@ loadLocalEnv();
 
 // ---- Persistent app settings ----
 export type ReasoningEffort = "low" | "medium" | "high";
+export type PricesProvider = "yahoo" | "tiingo";
+export type PlaidEnvName = "sandbox" | "production";
 interface AppSettings {
   /** User-chosen root folder for Basis data (default ~/Documents/Basis). */
   homeDir?: string;
@@ -112,18 +125,38 @@ interface AppSettings {
   reasoningEffort: ReasoningEffort;
   /** Contact email for the SEC EDGAR User-Agent (their fair-access rules ask for one). */
   edgarContact?: string;
+  /** Daily-close price data: free Yahoo Finance by default, keyed Tiingo optionally. */
+  pricesProvider: PricesProvider;
+  pricesApiKey?: string;
+  /** Read-only Plaid Investments sync (the user's own Plaid credentials). */
+  plaidClientId?: string;
+  plaidSecret?: string;
+  plaidEnv: PlaidEnvName;
+  plaidAccessToken?: string;
 }
 /**
  * The renderer never needs raw key values — only whether a key is set — so we
  * strip them at the IPC boundary. Keeping the plaintext main-side means a
  * renderer compromise can't read them over `settings:get`.
  */
-type PublicSettings = Omit<AppSettings, "agentApiKey"> & {
+type PublicSettings = Omit<
+  AppSettings,
+  "agentApiKey" | "pricesApiKey" | "plaidSecret" | "plaidAccessToken"
+> & {
   hasAgentKey: boolean;
+  hasPricesKey: boolean;
+  hasPlaidCredentials: boolean;
+  plaidLinked: boolean;
 };
 function publicSettings(s: AppSettings): PublicSettings {
-  const { agentApiKey, ...rest } = s;
-  return { ...rest, hasAgentKey: Boolean(agentApiKey) };
+  const { agentApiKey, pricesApiKey, plaidSecret, plaidAccessToken, ...rest } = s;
+  return {
+    ...rest,
+    hasAgentKey: Boolean(agentApiKey),
+    hasPricesKey: Boolean(pricesApiKey),
+    hasPlaidCredentials: Boolean(s.plaidClientId && plaidSecret),
+    plaidLinked: Boolean(plaidAccessToken),
+  };
 }
 const SETTINGS_PATH = join(app.getPath("userData"), "settings.json");
 function readSettings(): AppSettings {
@@ -135,12 +168,19 @@ function readSettings(): AppSettings {
   }
   const oneOf = <T extends string>(v: unknown, options: readonly T[], dflt: T): T =>
     typeof v === "string" && (options as readonly string[]).includes(v) ? (v as T) : dflt;
+  const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
   return {
-    homeDir: typeof s.homeDir === "string" && s.homeDir ? s.homeDir : undefined,
-    agentModel: typeof s.agentModel === "string" && s.agentModel ? s.agentModel : "gpt-5.5",
-    agentApiKey: typeof s.agentApiKey === "string" && s.agentApiKey ? s.agentApiKey : undefined,
+    homeDir: str(s.homeDir),
+    agentModel: str(s.agentModel) ?? "gpt-5.5",
+    agentApiKey: str(s.agentApiKey),
     reasoningEffort: oneOf(s.reasoningEffort, ["low", "medium", "high"] as const, "low"),
-    edgarContact: typeof s.edgarContact === "string" && s.edgarContact ? s.edgarContact : undefined,
+    edgarContact: str(s.edgarContact),
+    pricesProvider: oneOf(s.pricesProvider, ["yahoo", "tiingo"] as const, "yahoo"),
+    pricesApiKey: str(s.pricesApiKey),
+    plaidClientId: str(s.plaidClientId),
+    plaidSecret: str(s.plaidSecret),
+    plaidEnv: oneOf(s.plaidEnv, ["sandbox", "production"] as const, "sandbox"),
+    plaidAccessToken: str(s.plaidAccessToken),
   };
 }
 function writeSettings(patch: Partial<AppSettings>): AppSettings {
@@ -166,6 +206,8 @@ const envLocked = {
   ),
   effort: "BASIS_REASONING_EFFORT" in process.env,
   edgarContact: "BASIS_EDGAR_CONTACT" in process.env,
+  pricesProvider: "BASIS_PRICES_PROVIDER" in process.env,
+  pricesKey: "BASIS_PRICES_API_KEY" in process.env,
 };
 function applyAgentEnv(s: AppSettings): void {
   if (!envLocked.model) {
@@ -182,6 +224,11 @@ function applyAgentEnv(s: AppSettings): void {
   if (!envLocked.edgarContact) {
     if (s.edgarContact) process.env["BASIS_EDGAR_CONTACT"] = s.edgarContact;
     else delete process.env["BASIS_EDGAR_CONTACT"];
+  }
+  if (!envLocked.pricesProvider) process.env["BASIS_PRICES_PROVIDER"] = s.pricesProvider;
+  if (!envLocked.pricesKey) {
+    if (s.pricesApiKey) process.env["BASIS_PRICES_API_KEY"] = s.pricesApiKey;
+    else delete process.env["BASIS_PRICES_API_KEY"];
   }
 }
 applyAgentEnv(readSettings());
@@ -350,6 +397,7 @@ function loadData() {
       xray,
       digest: latestDigest(),
       briefs: listBriefs(),
+      ideas: parseIdeas(readJsonMaybe(join(DATA_DIR, "ideas.json"))),
     };
   } catch (err) {
     return { ok: false as const, error: String(err) };
@@ -560,9 +608,50 @@ function recordDecision(input: { trade?: unknown; verdict?: unknown; argument?: 
     };
     // Append-only JSONL: the point is an honest history the user can review.
     appendFileSync(join(DATA_DIR, "decisions.log.jsonl"), `${JSON.stringify(entry)}\n`);
+    // Also land it in the idea log so grade-ideas.mjs / the Track record UI
+    // can show what happened after. Intentionally NOT markSelfWrite'd — the
+    // watcher reload is how the new idea reaches the renderer.
+    try {
+      const ideas = parseIdeas(readJsonMaybe(join(DATA_DIR, "ideas.json")));
+      ideas.ideas.unshift({
+        id: `gate-${Date.now().toString(36)}`,
+        at: entry.at,
+        kind: "gate",
+        text: trade,
+        verdict,
+      });
+      ideas.ideas = ideas.ideas.slice(0, 500);
+      writeFileAtomic(join(DATA_DIR, "ideas.json"), `${JSON.stringify(parseIdeas(ideas), null, 2)}\n`);
+    } catch (err) {
+      logger.warn(`could not append gate decision to ideas.json: ${String(err)}`);
+    }
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err) };
+  }
+}
+
+// ---- Plaid (read-only broker sync) ----
+function plaidConfig(): PlaidConfig | null {
+  const s = readSettings();
+  if (!s.plaidClientId || !s.plaidSecret) return null;
+  return { clientId: s.plaidClientId, secret: s.plaidSecret, env: s.plaidEnv };
+}
+
+async function plaidSync(): Promise<{ ok: boolean; imported?: number; skipped?: number; error?: string }> {
+  const cfg = plaidConfig();
+  const token = readSettings().plaidAccessToken;
+  if (!cfg) return { ok: false, error: "Add your Plaid client ID + secret in Settings first." };
+  if (!token) return { ok: false, error: "No broker linked yet — use Connect broker first." };
+  try {
+    const resp = await fetchHoldings(cfg, token);
+    const existing = parsePortfolio(readJsonMaybe(join(DATA_DIR, "portfolio.json")));
+    const { portfolio, imported, skipped } = mapPlaidHoldings(resp, existing);
+    const write = writeDoc("portfolio", portfolio);
+    if (!write.ok) return { ok: false, error: write.error };
+    return { ok: true, imported, skipped };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -636,19 +725,58 @@ app.whenReady().then(() => {
   ipcMain.handle("xray:start", (event) => runScript(XRAY_SCRIPT, [], event, "xray"));
   ipcMain.handle("monitor:start", async (event) => {
     // Fetch new filings first; then, when a model is configured, summarize
-    // what changed in the diffable ones. Both report on the "monitor" prefix.
+    // what changed in the diffable ones; finally re-grade the idea log
+    // against fresh closes. All report on the "monitor" prefix, and the
+    // follow-up steps never fail the run — the filings already landed.
     const fetched = await runScript(MONITOR_SCRIPT, [], event, "monitor");
     if (!fetched.ok) return fetched;
+    const notes: string[] = [];
     if (llmInfo().configured) {
       const diffed = await runScript(DIFF_SCRIPT, [], event, "monitor");
-      if (!diffed.ok) {
-        // New filings still landed; surface the diff failure without failing the run.
-        return { ok: true, output: `${fetched.output ?? ""} (diff summaries failed: ${diffed.error})` };
-      }
+      if (!diffed.ok) notes.push(`diff summaries failed: ${diffed.error}`);
     }
-    return fetched;
+    const graded = await runScript(GRADE_IDEAS_SCRIPT, [], event, "monitor");
+    if (!graded.ok) notes.push(`idea grading failed: ${graded.error}`);
+    return {
+      ok: true,
+      output: notes.length > 0 ? `${fetched.output ?? ""} (${notes.join("; ")})` : fetched.output,
+    };
   });
   ipcMain.handle("digest:start", (event) => runScript(DIGEST_SCRIPT, [], event, "digest"));
+
+  // ---- Plaid (read-only broker sync) ----
+  ipcMain.handle("plaid:link", async () => {
+    const cfg = plaidConfig();
+    if (!cfg) return { ok: false, error: "Add your Plaid client ID + secret in Settings first." };
+    try {
+      const linkToken = await createLinkToken(cfg);
+      const result = await openLinkWindow(linkToken, mainWindow);
+      if (!result.ok || !result.publicToken) {
+        return result.cancelled ? { ok: false, cancelled: true } : { ok: false, error: result.error };
+      }
+      const accessToken = await exchangePublicToken(cfg, result.publicToken);
+      writeSettings({ plaidAccessToken: accessToken });
+      // First sync immediately so the link button visibly does something.
+      return await plaidSync();
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle("plaid:sync", () => plaidSync());
+  ipcMain.handle("plaid:unlink", async () => {
+    const cfg = plaidConfig();
+    const token = readSettings().plaidAccessToken;
+    if (cfg && token) {
+      try {
+        await removeItem(cfg, token);
+      } catch (err) {
+        // Best-effort: clear our token even if Plaid's side fails.
+        logger.warn(`plaid item remove failed: ${String(err)}`);
+      }
+    }
+    writeSettings({ plaidAccessToken: undefined });
+    return { ok: true };
+  });
 
   // ---- Chat + friction gate ----
   ipcMain.handle("chat:send", (event, input: { mode?: string; messages?: unknown }) =>

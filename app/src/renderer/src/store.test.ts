@@ -11,6 +11,7 @@ function seedData(): AppData {
     xray: null,
     digest: null,
     briefs: [],
+    ideas: { version: 1, ideas: [] },
   };
 }
 
@@ -34,7 +35,11 @@ beforeEach(() => {
 describe("document saves", () => {
   it("savePortfolio updates state optimistically and persists via the bridge", async () => {
     useApp.getState().setData(seedData());
-    const doc = { version: 1 as const, currency: "USD", holdings: [{ ticker: "AAPL" }] };
+    const doc = {
+      version: 1 as const,
+      currency: "USD",
+      holdings: [{ ticker: "AAPL", source: "manual" as const }],
+    };
     await useApp.getState().savePortfolio(doc);
     expect(useApp.getState().data?.portfolio.holdings).toHaveLength(1);
     expect(window.api.savePortfolio).toHaveBeenCalledWith(doc);

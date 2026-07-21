@@ -2,13 +2,14 @@ import {
   AlertsSchema,
   BriefSchema,
   DigestSchema,
+  IdeasSchema,
   IpsSchema,
   MetaSchema,
   PortfolioSchema,
   WatchlistSchema,
   XraySchema,
 } from "./schema.js";
-import type { Alerts, Brief, Digest, Ips, Meta, Portfolio, Watchlist, Xray } from "./types.js";
+import type { Alerts, Brief, Digest, Ideas, Ips, Meta, Portfolio, Watchlist, Xray } from "./types.js";
 
 export * from "./schema.js";
 export * from "./types.js";
@@ -47,6 +48,10 @@ export function parseAlerts(input: unknown): Alerts {
 
 export function parseXray(input: unknown): Xray {
   return XraySchema.parse(input ?? {});
+}
+
+export function parseIdeas(input: unknown): Ideas {
+  return IdeasSchema.parse(input ?? {});
 }
 
 export interface BriefParseResult {
