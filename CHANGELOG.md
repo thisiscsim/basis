@@ -9,6 +9,15 @@ versions.
 
 ### Changed
 
+- **Single-player: removed workspaces and folders.** There is exactly one
+  portfolio/IPS/watchlist, living in one data folder (`~/Documents/Basis`,
+  scaffolded on first launch; `BASIS_DATA_DIR` override in dev). The app opens
+  straight into the Digest / Research / Coach shell — the Home grid, folder
+  (album) grouping, workspace CRUD, slugs, and the per-slug containment
+  machinery are gone, along with the `Tile` UI kit component and the Home
+  styles. Engine scripts drop `--slug` and resolve `lib/data-dir.mjs`; the
+  friction-gate log lives at the data root.
+
 - **Product pivot: Basis is now an LLM investing copilot** (from the AI video
   studio). The video domain (Remotion preview/export, timeline, EDL schema,
   transcription/TTS/voices, ffmpeg media plumbing, style/benchmark learning)

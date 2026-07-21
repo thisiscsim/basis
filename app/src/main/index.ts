@@ -6,12 +6,10 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
   watch,
 } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, normalize, sep } from "node:path";
-import { assertSlug, isSafeExternalUrl, safePath, slugify, writeFileAtomic } from "./paths";
+import { isSafeExternalUrl, safePath, writeFileAtomic } from "./paths";
 import {
   app,
   BrowserWindow,
@@ -31,7 +29,6 @@ import {
   parseBrief,
   parseDigest,
   parseIps,
-  parseMeta,
   parsePortfolio,
   parseWatchlist,
   parseXray,
@@ -40,14 +37,7 @@ import {
   type Watchlist,
   type Xray,
 } from "@basis/schema";
-import {
-  type ChatMessage,
-  type ChatMode,
-  evaluateGate,
-  llmInfo,
-  streamChat,
-  type WorkspaceContext,
-} from "./llm";
+import { type ChatMessage, type ChatMode, evaluateGate, llmInfo, streamChat, type CoachContext } from "./llm";
 
 // In dev (electron-vite) __dirname is <repo>/app/out/main, so the repo root is
 // three levels up. Allow an override for packaged/other layouts.
@@ -60,8 +50,9 @@ const MONITOR_SCRIPT = join(SCRIPTS_DIR, "monitor.mjs");
 const DIFF_SCRIPT = join(SCRIPTS_DIR, "diff-llm.mjs");
 const DIGEST_SCRIPT = join(SCRIPTS_DIR, "digest-llm.mjs");
 
-function safeWorkspacePath(slug: string, ...rel: string[]): string {
-  return safePath(WORKSPACES_DIR, [slug, ...rel]);
+/** Guarded path inside the single data dir (brief filenames etc. are untrusted). */
+function safeDataPath(...rel: string[]): string {
+  return safePath(DATA_DIR, rel);
 }
 
 // Captured so dialogs can parent to the window.
@@ -75,8 +66,8 @@ app.setName("Basis");
 installCrashHandlers();
 logger.info(`Basis ${app.getVersion()} starting (electron ${process.versions.electron})`);
 
-// Two instances would both watch and write the same workspace files /
-// settings.json; refuse to start a second one and focus the first instead.
+// Two instances would both watch and write the same data files / settings.json;
+// refuse to start a second one and focus the first instead.
 if (!app.requestSingleInstanceLock()) {
   app.exit(0);
 }
@@ -113,7 +104,7 @@ loadLocalEnv();
 // ---- Persistent app settings ----
 export type ReasoningEffort = "low" | "medium" | "high";
 interface AppSettings {
-  /** User-chosen root folder for workspaces (default ~/Documents/Basis). */
+  /** User-chosen root folder for Basis data (default ~/Documents/Basis). */
   homeDir?: string;
   /** Agent preferences (env vars from .env.local always win). */
   agentModel: string;
@@ -195,22 +186,42 @@ function applyAgentEnv(s: AppSettings): void {
 }
 applyAgentEnv(readSettings());
 
-// User-owned storage: workspaces live under the user's home folder, not the
-// repo/app bundle. Resolution: env override (dev) -> user-picked folder
-// (settings) -> ~/Documents/Basis. Resolved once at startup.
+// User-owned storage: a single data folder (single-player — there is exactly
+// one portfolio/IPS/watchlist). Resolution: env override (dev) -> user-picked
+// folder (settings) -> ~/Documents/Basis. Resolved once at startup.
 const APP_HOME =
   process.env["BASIS_HOME"] ?? readSettings().homeDir ?? join(app.getPath("documents"), "Basis");
-const WORKSPACES_DIR = process.env["BASIS_WORKSPACES_DIR"] ?? join(APP_HOME, "workspaces");
+const DATA_DIR = process.env["BASIS_DATA_DIR"] ?? APP_HOME;
 const CACHE_DIR = process.env["BASIS_CACHE_DIR"] ?? join(APP_HOME, "cache");
-try {
-  mkdirSync(WORKSPACES_DIR, { recursive: true });
-  mkdirSync(CACHE_DIR, { recursive: true });
-} catch {
-  // directories are best-effort at startup
-}
 // Spawned scripts (brief/xray/monitor/...) inherit these to find the same dirs.
-process.env["BASIS_WORKSPACES_DIR"] = WORKSPACES_DIR;
+process.env["BASIS_DATA_DIR"] = DATA_DIR;
 process.env["BASIS_CACHE_DIR"] = CACHE_DIR;
+
+/**
+ * First-run scaffold: make sure every document/dir exists so the renderer,
+ * the scripts, and an agent all see the same self-describing folder.
+ */
+function scaffoldDataDir(): void {
+  try {
+    for (const sub of ["briefs", "digests", "filings"]) {
+      mkdirSync(join(DATA_DIR, sub), { recursive: true });
+    }
+    mkdirSync(CACHE_DIR, { recursive: true });
+    const seed: [string, unknown][] = [
+      ["portfolio.json", parsePortfolio({})],
+      ["ips.json", parseIps({})],
+      ["watchlist.json", parseWatchlist({})],
+      ["alerts.json", parseAlerts({})],
+    ];
+    for (const [file, doc] of seed) {
+      const path = join(DATA_DIR, file);
+      if (!existsSync(path)) writeFileAtomic(path, `${JSON.stringify(doc, null, 2)}\n`);
+    }
+  } catch (err) {
+    logger.error("could not scaffold the data dir", err as Error);
+  }
+}
+scaffoldDataDir();
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -236,9 +247,9 @@ function createWindow(): void {
   win.webContents.on("unresponsive", () => logger.warn("renderer unresponsive"));
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
-    // On macOS the process outlives the window; don't leave the last
-    // workspace's watcher running against a windowless app.
-    activeWatcher?.watcher.close();
+    // On macOS the process outlives the window; don't leave the watcher
+    // running against a windowless app.
+    activeWatcher?.close();
     activeWatcher = null;
   });
   // Only ever hand real web links to the OS. Denying the window is not enough:
@@ -264,39 +275,15 @@ function createWindow(): void {
   }
 }
 
-function readJson(file: string): unknown {
-  return JSON.parse(readFileSync(file, "utf8"));
-}
-
 function readJsonMaybe(file: string): unknown {
   try {
-    return readJson(file);
+    return JSON.parse(readFileSync(file, "utf8"));
   } catch {
     return null;
   }
 }
 
-function readMeta(slug: string) {
-  try {
-    return parseMeta(readJson(safeWorkspacePath(slug, "meta.json")));
-  } catch {
-    return parseMeta({});
-  }
-}
-
-function touchMeta(slug: string, patch: Partial<ReturnType<typeof readMeta>>): void {
-  try {
-    // Re-validate the merged result so an arbitrary renderer patch can't write
-    // unknown keys / out-of-range values into meta.json (parseMeta drops them).
-    const meta = parseMeta({ ...readMeta(slug), ...patch, updatedAt: new Date().toISOString() });
-    markSelfWrite(slug);
-    writeFileAtomic(safeWorkspacePath(slug, "meta.json"), `${JSON.stringify(meta, null, 2)}\n`);
-  } catch {
-    // meta is best-effort
-  }
-}
-
-// ---- Workspace documents ----
+// ---- Data documents ----
 
 export interface BriefSummary {
   file: string;
@@ -307,12 +294,12 @@ export interface BriefSummary {
 
 const BRIEF_FILE_RE = /^[A-Z0-9.-]{1,12}-\d{4}-\d{2}-\d{2}\.json$/;
 
-function listBriefs(slug: string): BriefSummary[] {
+function listBriefs(): BriefSummary[] {
   const out: BriefSummary[] = [];
   try {
-    for (const file of readdirSync(safeWorkspacePath(slug, "briefs"))) {
+    for (const file of readdirSync(join(DATA_DIR, "briefs"))) {
       if (!BRIEF_FILE_RE.test(file)) continue;
-      const parsed = parseBrief(readJsonMaybe(safeWorkspacePath(slug, "briefs", file)));
+      const parsed = parseBrief(readJsonMaybe(safeDataPath("briefs", file)));
       if (parsed.ok && parsed.brief) {
         out.push({
           file,
@@ -328,14 +315,14 @@ function listBriefs(slug: string): BriefSummary[] {
   return out.sort((a, b) => (b.generatedAt ?? b.file).localeCompare(a.generatedAt ?? a.file));
 }
 
-function latestDigest(slug: string): Digest | null {
+function latestDigest(): Digest | null {
   try {
-    const files = readdirSync(safeWorkspacePath(slug, "digests"))
+    const files = readdirSync(join(DATA_DIR, "digests"))
       .filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f))
       .sort()
       .reverse();
     for (const file of files) {
-      const parsed = parseDigest(readJsonMaybe(safeWorkspacePath(slug, "digests", file)));
+      const parsed = parseDigest(readJsonMaybe(safeDataPath("digests", file)));
       if (parsed.ok && parsed.digest) return parsed.digest;
     }
   } catch {
@@ -344,53 +331,45 @@ function latestDigest(slug: string): Digest | null {
   return null;
 }
 
-function loadWorkspace(slug: string) {
+function loadData() {
   try {
-    assertSlug(slug);
-    const dir = safeWorkspacePath(slug);
-    if (!existsSync(join(dir, "meta.json"))) {
-      return { ok: false as const, error: "workspace not found", slug };
-    }
     let xray: Xray | null = null;
     try {
-      const raw = readJsonMaybe(join(dir, "xray.json"));
+      const raw = readJsonMaybe(join(DATA_DIR, "xray.json"));
       if (raw) xray = parseXray(raw);
     } catch {
       xray = null;
     }
     return {
       ok: true as const,
-      slug,
-      dir,
-      meta: readMeta(slug),
-      portfolio: parsePortfolio(readJsonMaybe(join(dir, "portfolio.json"))),
-      ips: parseIps(readJsonMaybe(join(dir, "ips.json"))),
-      watchlist: parseWatchlist(readJsonMaybe(join(dir, "watchlist.json"))),
-      alerts: parseAlerts(readJsonMaybe(join(dir, "alerts.json"))),
+      dir: DATA_DIR,
+      portfolio: parsePortfolio(readJsonMaybe(join(DATA_DIR, "portfolio.json"))),
+      ips: parseIps(readJsonMaybe(join(DATA_DIR, "ips.json"))),
+      watchlist: parseWatchlist(readJsonMaybe(join(DATA_DIR, "watchlist.json"))),
+      alerts: parseAlerts(readJsonMaybe(join(DATA_DIR, "alerts.json"))),
       xray,
-      digest: latestDigest(slug),
-      briefs: listBriefs(slug),
+      digest: latestDigest(),
+      briefs: listBriefs(),
     };
   } catch (err) {
-    return { ok: false as const, error: String(err), slug };
+    return { ok: false as const, error: String(err) };
   }
 }
 
-// We write workspace files from two places: the app (edits) and the engine
+// We write data files from two places: the app (edits) and the engine
 // scripts/agent. Track our own writes so the file watcher doesn't echo a
 // reload back to the UI that just saved (which would clobber in-flight edits).
-const lastSelfWrite = new Map<string, number>();
-let activeWatcher: { slug: string; watcher: FSWatcher } | null = null;
+let lastSelfWrite = 0;
+let activeWatcher: FSWatcher | null = null;
 
-function markSelfWrite(slug: string): void {
-  lastSelfWrite.set(slug, Date.now());
+function markSelfWrite(): void {
+  lastSelfWrite = Date.now();
 }
 
 type DocKind = "portfolio" | "ips" | "watchlist" | "alerts";
 
-function writeDoc(slug: string, kind: DocKind, input: unknown): { ok: boolean; error?: string } {
+function writeDoc(kind: DocKind, input: unknown): { ok: boolean; error?: string } {
   try {
-    assertSlug(slug);
     let validated: Portfolio | Ips | Watchlist | Alerts;
     switch (kind) {
       case "portfolio":
@@ -412,264 +391,43 @@ function writeDoc(slug: string, kind: DocKind, input: unknown): { ok: boolean; e
         return exhaustive;
       }
     }
-    markSelfWrite(slug);
-    writeFileAtomic(safeWorkspacePath(slug, `${kind}.json`), `${JSON.stringify(validated, null, 2)}\n`);
-    touchMeta(slug, {});
+    markSelfWrite();
+    writeFileAtomic(join(DATA_DIR, `${kind}.json`), `${JSON.stringify(validated, null, 2)}\n`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
 }
 
-function watchWorkspace(slug: string, event: IpcMainInvokeEvent): void {
-  activeWatcher?.watcher.close();
+function watchData(event: IpcMainInvokeEvent): void {
+  activeWatcher?.close();
   activeWatcher = null;
-  const dir = safeWorkspacePath(slug);
-  if (!existsSync(dir)) return;
+  if (!existsSync(DATA_DIR)) return;
   let timer: NodeJS.Timeout | null = null;
   // Watch the directory (recursively — briefs/ and digests/ matter too), not
   // individual files: atomic write-then-rename swaps the inode, which silently
   // kills a file-level watch on macOS (kqueue) and Linux (inotify).
-  const watcher = watch(dir, { recursive: true }, (_eventType, filename) => {
-    // Only react to JSON documents; ignore filing caches and temp files.
+  const watcher = watch(DATA_DIR, { recursive: true }, (_eventType, filename) => {
+    // Only react to JSON documents; ignore filing/EDGAR caches and temp files.
     if (filename) {
-      const name = basename(String(filename));
+      const rel = String(filename);
+      const name = basename(rel);
       if (!name.endsWith(".json") || name.startsWith(".")) return;
-      if (String(filename).startsWith("filings")) return;
+      if (rel.startsWith("filings") || rel.startsWith("cache")) return;
     }
     // Ignore the echo from our own saves.
-    if (Date.now() - (lastSelfWrite.get(slug) ?? 0) < 1200) return;
+    if (Date.now() - lastSelfWrite < 1200) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      if (!event.sender.isDestroyed()) event.sender.send("workspace:changed", slug);
+      if (!event.sender.isDestroyed()) event.sender.send("data:changed");
     }, 200);
   });
-  activeWatcher = { slug, watcher };
-}
-
-export interface WorkspaceSummary {
-  slug: string;
-  title: string;
-  status: string;
-  holdings: number;
-  watching: number;
-  unreadAlerts: number;
-  updatedAt?: string;
-  albumId?: string;
-}
-
-// ---- Home-page albums (registry at <WORKSPACES_DIR>/albums.json; membership
-// lives in each workspace's meta.json so workspaces stay self-describing) ----
-export interface AlbumRecord {
-  id: string;
-  name: string;
-  createdAt: string;
-}
-
-const ALBUMS_FILE = () => join(WORKSPACES_DIR, "albums.json");
-
-function readAlbums(): AlbumRecord[] {
-  try {
-    const raw = JSON.parse(readFileSync(ALBUMS_FILE(), "utf8")) as { albums?: unknown[] };
-    return (raw.albums ?? []).filter(
-      (a): a is AlbumRecord =>
-        typeof a === "object" &&
-        a !== null &&
-        typeof (a as AlbumRecord).id === "string" &&
-        typeof (a as AlbumRecord).name === "string",
-    );
-  } catch {
-    return [];
-  }
-}
-
-function writeAlbumsFile(albums: AlbumRecord[]): void {
-  writeFileAtomic(ALBUMS_FILE(), `${JSON.stringify({ albums }, null, 2)}\n`);
-}
-
-const validAlbumId = (id: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(id);
-
-function createAlbum(name: string): { ok: boolean; id?: string; name?: string; error?: string } {
-  try {
-    const albums = readAlbums();
-    // Dedupe the display name ("New folder", "New folder 2", ...) then derive the id.
-    const base = name.trim() || "New folder";
-    let finalName = base;
-    let n = 2;
-    while (albums.some((a) => a.name.toLowerCase() === finalName.toLowerCase())) finalName = `${base} ${n++}`;
-    const idBase = slugify(finalName);
-    let id = idBase;
-    n = 2;
-    while (albums.some((a) => a.id === id)) id = `${idBase}-${n++}`;
-    albums.push({ id, name: finalName, createdAt: new Date().toISOString() });
-    writeAlbumsFile(albums);
-    return { ok: true, id, name: finalName };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  }
-}
-
-function renameAlbum(id: string, name: string): { ok: boolean; error?: string } {
-  try {
-    if (!validAlbumId(id)) return { ok: false, error: "invalid folder id" };
-    const albums = readAlbums();
-    const album = albums.find((a) => a.id === id);
-    if (!album) return { ok: false, error: "folder not found" };
-    const trimmed = name.trim();
-    if (!trimmed) return { ok: false, error: "name required" };
-    album.name = trimmed;
-    writeAlbumsFile(albums);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  }
-}
-
-function deleteAlbum(id: string): { ok: boolean; error?: string } {
-  try {
-    if (!validAlbumId(id)) return { ok: false, error: "invalid folder id" };
-    writeAlbumsFile(readAlbums().filter((a) => a.id !== id));
-    // The group dissolves; member workspaces are kept and just ungrouped.
-    for (const slug of readdirSync(WORKSPACES_DIR)) {
-      try {
-        if (!existsSync(join(WORKSPACES_DIR, slug, "meta.json"))) continue;
-        if (readMeta(slug).albumId === id) touchMeta(slug, { albumId: undefined });
-      } catch {
-        // skip unreadable entries
-      }
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  }
-}
-
-function setWorkspaceAlbum(slug: string, albumId: string | null): { ok: boolean; error?: string } {
-  try {
-    if (albumId !== null) {
-      if (!validAlbumId(albumId)) return { ok: false, error: "invalid folder id" };
-      if (!readAlbums().some((a) => a.id === albumId)) return { ok: false, error: "folder not found" };
-    }
-    touchMeta(slug, { albumId: albumId ?? undefined });
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  }
-}
-
-// Async + parallel: every ipcMain handler runs on the main (UI) thread, and
-// this reads/parses every workspace's sidecar files. fs/promises + Promise.all
-// yields between reads so a large home grid can't jank the window.
-async function listWorkspaces(): Promise<WorkspaceSummary[]> {
-  let entries: string[];
-  try {
-    entries = await readdir(WORKSPACES_DIR);
-  } catch {
-    return [];
-  }
-  const summaries = await Promise.all(
-    entries.map(async (slug): Promise<WorkspaceSummary | null> => {
-      const metaFile = join(WORKSPACES_DIR, slug, "meta.json");
-      if (!existsSync(metaFile)) return null; // not a workspace dir
-      let meta: ReturnType<typeof readMeta>;
-      try {
-        meta = parseMeta(JSON.parse(await readFile(metaFile, "utf8")));
-      } catch {
-        meta = parseMeta({});
-      }
-      const readCount = async (file: string, pick: (data: unknown) => number): Promise<number> => {
-        try {
-          return pick(JSON.parse(await readFile(join(WORKSPACES_DIR, slug, file), "utf8")));
-        } catch {
-          return 0;
-        }
-      };
-      const holdings = await readCount("portfolio.json", (d) => parsePortfolio(d).holdings.length);
-      const watching = await readCount("watchlist.json", (d) => parseWatchlist(d).entries.length);
-      const unreadAlerts = await readCount(
-        "alerts.json",
-        (d) => parseAlerts(d).alerts.filter((a) => !a.read).length,
-      );
-      let updatedAt = meta.updatedAt;
-      if (!updatedAt) {
-        try {
-          updatedAt = (await stat(metaFile)).mtime.toISOString();
-        } catch {
-          // leave undefined
-        }
-      }
-      return {
-        slug,
-        title: meta.title || slug,
-        status: meta.status,
-        holdings,
-        watching,
-        unreadAlerts,
-        updatedAt,
-        albumId: meta.albumId,
-      };
-    }),
-  );
-  return summaries
-    .filter((s): s is WorkspaceSummary => s !== null)
-    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
-}
-
-function createWorkspace(input: { title: string; tickers?: string[] }): {
-  ok: boolean;
-  slug?: string;
-  error?: string;
-} {
-  try {
-    const base = slugify(input.title);
-    let slug = base;
-    let n = 2;
-    while (existsSync(join(WORKSPACES_DIR, slug))) slug = `${base}-${n++}`;
-    const dir = join(WORKSPACES_DIR, slug);
-    for (const sub of ["briefs", "digests", "filings"]) {
-      mkdirSync(join(dir, sub), { recursive: true });
-    }
-    const now = new Date().toISOString();
-    const meta = parseMeta({
-      title: input.title.trim() || slug,
-      createdAt: now,
-      updatedAt: now,
-      status: "new",
-    });
-    const entries = (input.tickers ?? [])
-      .map((t) => TickerSchema.safeParse(String(t).toUpperCase().trim()))
-      .filter((r) => r.success)
-      .map((r) => ({ ticker: (r as { data: string }).data, addedAt: now }));
-    writeFileAtomic(join(dir, "meta.json"), `${JSON.stringify(meta, null, 2)}\n`);
-    writeFileAtomic(join(dir, "portfolio.json"), `${JSON.stringify(parsePortfolio({}), null, 2)}\n`);
-    writeFileAtomic(join(dir, "ips.json"), `${JSON.stringify(parseIps({}), null, 2)}\n`);
-    writeFileAtomic(join(dir, "watchlist.json"), `${JSON.stringify(parseWatchlist({ entries }), null, 2)}\n`);
-    writeFileAtomic(join(dir, "alerts.json"), `${JSON.stringify(parseAlerts({}), null, 2)}\n`);
-    return { ok: true, slug };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  }
-}
-
-function deleteWorkspace(slug: string): { ok: boolean; error?: string } {
-  try {
-    if (!slug || slug.includes("/") || slug.includes("\\")) return { ok: false, error: "invalid slug" };
-    const dir = safeWorkspacePath(slug);
-    if (normalize(dir) === normalize(WORKSPACES_DIR)) return { ok: false, error: "invalid slug" };
-    if (activeWatcher?.slug === slug) {
-      activeWatcher.watcher.close();
-      activeWatcher = null;
-    }
-    rmSync(dir, { recursive: true, force: true });
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  }
+  activeWatcher = watcher;
 }
 
 // Spawn a Node script with arbitrary args, streaming its PHASE/PROGRESS/DONE
 // protocol back to the renderer on `${channelPrefix}:*` channels.
-function runScriptArgs(
+function runScript(
   scriptPath: string,
   args: string[],
   event: IpcMainInvokeEvent,
@@ -726,30 +484,14 @@ function runScriptArgs(
   });
 }
 
-function runScript(
-  scriptPath: string,
-  slug: string,
-  event: IpcMainInvokeEvent,
-  channelPrefix: string,
-  extraArgs: string[] = [],
-): Promise<{ ok: boolean; output?: string; error?: string }> {
-  // Engine scripts join the slug onto the workspaces dir themselves, so enforce
-  // slug shape at this IPC boundary (same rule slugify produces).
-  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(slug)) {
-    return Promise.resolve({ ok: false, error: "invalid workspace id" });
-  }
-  return runScriptArgs(scriptPath, ["--slug", slug, ...extraArgs], event, channelPrefix);
-}
-
 // ---- Chat (tutor / coach) ----
 // One in-flight stream per app; a new send aborts the previous one.
 let activeChat: AbortController | null = null;
 
-function workspaceContext(slug: string | null): WorkspaceContext | null {
-  if (!slug) return null;
-  const ws = loadWorkspace(slug);
-  if (!ws.ok) return null;
-  return { ips: ws.ips, portfolio: ws.portfolio, xray: ws.xray };
+function coachContext(): CoachContext | null {
+  const data = loadData();
+  if (!data.ok) return null;
+  return { ips: data.ips, portfolio: data.portfolio, xray: data.xray };
 }
 
 function sanitizeMessages(input: unknown): ChatMessage[] | null {
@@ -766,7 +508,7 @@ function sanitizeMessages(input: unknown): ChatMessage[] | null {
 
 async function handleChatSend(
   event: IpcMainInvokeEvent,
-  input: { slug?: string | null; mode?: string; messages?: unknown },
+  input: { mode?: string; messages?: unknown },
 ): Promise<{ ok: boolean; text?: string; cancelled?: boolean; error?: string }> {
   if (!llmInfo().configured) {
     return { ok: false, error: "No model configured (add an API key in Settings)." };
@@ -774,15 +516,6 @@ async function handleChatSend(
   const mode: ChatMode = input.mode === "coach" ? "coach" : "tutor";
   const messages = sanitizeMessages(input.messages);
   if (!messages) return { ok: false, error: "invalid chat payload" };
-  let slug: string | null = null;
-  if (typeof input.slug === "string") {
-    try {
-      assertSlug(input.slug);
-      slug = input.slug;
-    } catch {
-      return { ok: false, error: "invalid workspace id" };
-    }
-  }
 
   activeChat?.abort();
   const controller = new AbortController();
@@ -790,7 +523,7 @@ async function handleChatSend(
   try {
     const text = await streamChat({
       mode,
-      context: mode === "coach" ? workspaceContext(slug) : null,
+      context: mode === "coach" ? coachContext() : null,
       messages,
       signal: controller.signal,
       onDelta: (delta) => {
@@ -811,12 +544,11 @@ async function handleChatSend(
 }
 
 // ---- Friction-gate decision log ----
-function recordDecision(
-  slug: string,
-  input: { trade?: unknown; verdict?: unknown; argument?: unknown },
-): { ok: boolean; error?: string } {
+function recordDecision(input: { trade?: unknown; verdict?: unknown; argument?: unknown }): {
+  ok: boolean;
+  error?: string;
+} {
   try {
-    assertSlug(slug);
     const trade = String(input.trade ?? "").slice(0, 1000);
     const verdict = input.verdict === "proceeded" ? "proceeded" : "cancelled";
     if (!trade.trim()) return { ok: false, error: "trade description required" };
@@ -827,7 +559,7 @@ function recordDecision(
       argument: typeof input.argument === "string" ? input.argument.slice(0, 8000) : undefined,
     };
     // Append-only JSONL: the point is an honest history the user can review.
-    appendFileSync(safeWorkspacePath(slug, "decisions.log.jsonl"), `${JSON.stringify(entry)}\n`);
+    appendFileSync(join(DATA_DIR, "decisions.log.jsonl"), `${JSON.stringify(entry)}\n`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err) };
@@ -867,54 +599,21 @@ app.whenReady().then(() => {
 
   ipcMain.handle("ping", () => "pong");
 
-  // ---- Workspaces ----
-  ipcMain.handle("workspaces:list", () => listWorkspaces());
-  ipcMain.handle("workspace:create", (_event, input: { title: string; tickers?: string[] }) =>
-    createWorkspace(input),
-  );
-  ipcMain.handle("workspace:load", (_event, slug: string) => loadWorkspace(slug));
-  ipcMain.handle("workspace:delete", (_event, slug: string) => deleteWorkspace(slug));
-  ipcMain.handle("workspace:watch", (event, slug: string) => {
-    try {
-      assertSlug(slug);
-      watchWorkspace(slug, event);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: String(err) };
-    }
-  });
-  ipcMain.handle("meta:save", (_event, slug: string, patch: Record<string, unknown>) => {
-    touchMeta(slug, patch);
+  // ---- Data documents ----
+  ipcMain.handle("data:load", () => loadData());
+  ipcMain.handle("data:watch", (event) => {
+    watchData(event);
     return { ok: true };
   });
-
-  // ---- Folders (albums) on the home grid ----
-  ipcMain.handle("albums:list", () => readAlbums());
-  ipcMain.handle("albums:create", (_event, name: string) => createAlbum(name));
-  ipcMain.handle("albums:rename", (_event, id: string, name: string) => renameAlbum(id, name));
-  ipcMain.handle("albums:delete", (_event, id: string) => deleteAlbum(id));
-  ipcMain.handle("workspace:setAlbum", (_event, slug: string, albumId: string | null) =>
-    setWorkspaceAlbum(slug, albumId),
-  );
-
-  // ---- Workspace documents ----
-  ipcMain.handle("portfolio:save", (_event, slug: string, doc: unknown) => writeDoc(slug, "portfolio", doc));
-  ipcMain.handle("ips:save", (_event, slug: string, doc: unknown) => writeDoc(slug, "ips", doc));
-  ipcMain.handle("watchlist:save", (_event, slug: string, doc: unknown) => writeDoc(slug, "watchlist", doc));
-  ipcMain.handle("alerts:save", (_event, slug: string, doc: unknown) => writeDoc(slug, "alerts", doc));
-  ipcMain.handle("briefs:list", (_event, slug: string) => {
+  ipcMain.handle("portfolio:save", (_event, doc: unknown) => writeDoc("portfolio", doc));
+  ipcMain.handle("ips:save", (_event, doc: unknown) => writeDoc("ips", doc));
+  ipcMain.handle("watchlist:save", (_event, doc: unknown) => writeDoc("watchlist", doc));
+  ipcMain.handle("alerts:save", (_event, doc: unknown) => writeDoc("alerts", doc));
+  ipcMain.handle("briefs:list", () => listBriefs());
+  ipcMain.handle("brief:load", (_event, file: string) => {
     try {
-      assertSlug(slug);
-      return listBriefs(slug);
-    } catch {
-      return [];
-    }
-  });
-  ipcMain.handle("brief:load", (_event, slug: string, file: string) => {
-    try {
-      assertSlug(slug);
       if (basename(file) !== file || !BRIEF_FILE_RE.test(file)) return null;
-      const parsed = parseBrief(readJsonMaybe(safeWorkspacePath(slug, "briefs", file)));
+      const parsed = parseBrief(readJsonMaybe(safeDataPath("briefs", file)));
       return parsed.ok ? (parsed.brief ?? null) : null;
     } catch {
       return null;
@@ -922,7 +621,7 @@ app.whenReady().then(() => {
   });
 
   // ---- Jobs (spawned engine scripts) ----
-  ipcMain.handle("brief:start", (event, slug: string, ticker: string) => {
+  ipcMain.handle("brief:start", (event, ticker: string) => {
     const parsed = TickerSchema.safeParse(
       String(ticker ?? "")
         .toUpperCase()
@@ -932,16 +631,16 @@ app.whenReady().then(() => {
     if (!llmInfo().configured) {
       return Promise.resolve({ ok: false, error: "No model configured (add an API key in Settings)." });
     }
-    return runScript(BRIEF_SCRIPT, slug, event, "brief", ["--ticker", parsed.data]);
+    return runScript(BRIEF_SCRIPT, ["--ticker", parsed.data], event, "brief");
   });
-  ipcMain.handle("xray:start", (event, slug: string) => runScript(XRAY_SCRIPT, slug, event, "xray"));
-  ipcMain.handle("monitor:start", async (event, slug: string) => {
+  ipcMain.handle("xray:start", (event) => runScript(XRAY_SCRIPT, [], event, "xray"));
+  ipcMain.handle("monitor:start", async (event) => {
     // Fetch new filings first; then, when a model is configured, summarize
     // what changed in the diffable ones. Both report on the "monitor" prefix.
-    const fetched = await runScript(MONITOR_SCRIPT, slug, event, "monitor");
+    const fetched = await runScript(MONITOR_SCRIPT, [], event, "monitor");
     if (!fetched.ok) return fetched;
     if (llmInfo().configured) {
-      const diffed = await runScript(DIFF_SCRIPT, slug, event, "monitor");
+      const diffed = await runScript(DIFF_SCRIPT, [], event, "monitor");
       if (!diffed.ok) {
         // New filings still landed; surface the diff failure without failing the run.
         return { ok: true, output: `${fetched.output ?? ""} (diff summaries failed: ${diffed.error})` };
@@ -949,10 +648,10 @@ app.whenReady().then(() => {
     }
     return fetched;
   });
-  ipcMain.handle("digest:start", (event, slug: string) => runScript(DIGEST_SCRIPT, slug, event, "digest"));
+  ipcMain.handle("digest:start", (event) => runScript(DIGEST_SCRIPT, [], event, "digest"));
 
   // ---- Chat + friction gate ----
-  ipcMain.handle("chat:send", (event, input: { slug?: string | null; mode?: string; messages?: unknown }) =>
+  ipcMain.handle("chat:send", (event, input: { mode?: string; messages?: unknown }) =>
     handleChatSend(event, input),
   );
   ipcMain.handle("chat:cancel", () => {
@@ -960,24 +659,17 @@ app.whenReady().then(() => {
     activeChat = null;
     return { ok: true };
   });
-  ipcMain.handle("gate:evaluate", async (_event, slug: string, trade: string) => {
-    try {
-      assertSlug(slug);
-    } catch {
-      return { ok: false, error: "invalid workspace id" };
-    }
+  ipcMain.handle("gate:evaluate", async (_event, trade: string) => {
     if (!llmInfo().configured) {
       return { ok: false, error: "No model configured (add an API key in Settings)." };
     }
     const text = String(trade ?? "").slice(0, 1000);
     if (!text.trim()) return { ok: false, error: "describe the trade first" };
-    const ctx = workspaceContext(slug);
-    if (!ctx) return { ok: false, error: "workspace not found" };
+    const ctx = coachContext();
+    if (!ctx) return { ok: false, error: "could not read your data folder" };
     return evaluateGate(text, ctx);
   });
-  ipcMain.handle("gate:record", (_event, slug: string, input: Record<string, unknown>) =>
-    recordDecision(slug, input),
-  );
+  ipcMain.handle("gate:record", (_event, input: Record<string, unknown>) => recordDecision(input));
 
   // ---- Settings / app plumbing ----
   ipcMain.handle("settings:get", () => publicSettings(readSettings()));
@@ -993,18 +685,19 @@ app.whenReady().then(() => {
       keyLocked: envLocked.apiKey,
     };
   });
-  ipcMain.handle("home:get", () => WORKSPACES_DIR);
-  ipcMain.handle("home:reveal", () => shell.openPath(WORKSPACES_DIR));
+  ipcMain.handle("home:get", () => DATA_DIR);
+  ipcMain.handle("home:reveal", () => shell.openPath(DATA_DIR));
   ipcMain.handle("home:pick", async () => {
     const win = mainWindow ?? BrowserWindow.getFocusedWindow();
     const opts: Electron.OpenDialogOptions = {
-      title: "Choose where Basis stores your workspaces",
+      title: "Choose where Basis stores your data",
       properties: ["openDirectory", "createDirectory"],
       defaultPath: APP_HOME,
     };
     const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return { ok: true, canceled: true };
-    // Store the chosen folder as the Basis home; workspaces live under it.
+    // Store the chosen folder as the Basis home (takes effect on restart —
+    // DATA_DIR is resolved once at startup).
     writeSettings({ homeDir: result.filePaths[0] });
     return { ok: true, homeDir: result.filePaths[0] };
   });
@@ -1012,7 +705,7 @@ app.whenReady().then(() => {
     // Only reveal paths inside the app's own storage roots — never an arbitrary
     // renderer-supplied path.
     const target = normalize(filePath);
-    const roots = [WORKSPACES_DIR, APP_HOME].map(normalize);
+    const roots = [DATA_DIR, APP_HOME].map(normalize);
     if (!roots.some((r) => target === r || target.startsWith(r + sep))) return;
     shell.showItemInFolder(target);
   });
@@ -1047,6 +740,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  activeWatcher?.watcher.close();
+  activeWatcher?.close();
   activeWatcher = null;
 });

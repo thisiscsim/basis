@@ -8,8 +8,8 @@ alwaysApply: false
 
 ## Contract with the app
 - Plain Node ESM (`.mjs`), spawned by the main process. Communicate over stdout with line protocol: `PHASE <text>`, `PROGRESS <0-100>`, `DONE <result>`; errors to stderr as `ERROR <message>` + non-zero exit (1 unexpected, 2 domain failure, 3 LLM not configured).
-- Resolve the workspace dir from `process.env.BASIS_WORKSPACES_DIR` (fallback `<repo>/workspaces`) via `lib/workspace-dir.mjs` — the slug is untrusted CLI/agent input (`--slug ../../etc` must fail).
-- Workspace JSON read from disk is untrusted (shareable files): always go through the `@basis/schema` `parse*` helpers, and re-validate before writing anything back.
+- Resolve the single data dir from `process.env.BASIS_DATA_DIR` (fallback `<repo>/data`) via `lib/data-dir.mjs`. Single-player: no slugs, no per-run directory arguments.
+- Data JSON read from disk is untrusted (shareable files): always go through the `@basis/schema` `parse*` helpers, and re-validate before writing anything back.
 
 ## LLM calls
 - Always go through `llm.mjs` (`resolveModel()`, `isLlmConfigured()`, `reasoningEffort()` — config resolution lives in `@basis/schema` llm-config); never instantiate a provider directly.

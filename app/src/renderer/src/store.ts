@@ -1,10 +1,9 @@
 import { create } from "zustand";
-import type { Alerts, Brief, Digest, Ips, Meta, Portfolio, Watchlist, Xray } from "@basis/schema";
-import type { BriefSummary, ChatMessage, WorkspaceSummary } from "../../preload";
+import type { Alerts, Brief, Digest, Ips, Portfolio, Watchlist, Xray } from "@basis/schema";
+import type { BriefSummary, ChatMessage } from "../../preload";
 
-export type WorkspaceTab = "digest" | "research" | "coach";
+export type AppTab = "digest" | "research" | "coach";
 export type Theme = "dark" | "light";
-export type View = "home" | "workspace";
 
 const THEME_KEY = "basis:theme";
 const LAYOUT_KEY = "basis:panel-layout";
@@ -64,11 +63,9 @@ function withViewTransition(mutate: () => void): void {
   else mutate();
 }
 
-/** The documents of one loaded workspace, as read from disk. */
-export interface WorkspaceData {
-  slug: string;
+/** The user's documents, as read from the single data folder. */
+export interface AppData {
   dir: string | null;
-  meta: Meta | null;
   portfolio: Portfolio;
   ips: Ips;
   watchlist: Watchlist;
@@ -101,12 +98,9 @@ export interface JobState {
 const idleJob = (): JobState => ({ running: false, phase: "", progress: 0 });
 
 interface AppState {
-  view: View;
-  workspaces: WorkspaceSummary[];
-  ws: WorkspaceData | null;
-  slug: string | null;
+  data: AppData | null;
   loadError: string | null;
-  tab: WorkspaceTab;
+  tab: AppTab;
 
   theme: Theme;
   panelSizes: Record<PanelId, number>;
@@ -123,15 +117,11 @@ interface AppState {
   openBrief: Brief | null;
 
   notices: Notice[];
-  reloadWorkspace: () => void | Promise<void>;
+  reloadData: () => void | Promise<void>;
 
-  setView: (view: View) => void;
-  setWorkspaces: (list: WorkspaceSummary[]) => void;
-  openWorkspace: (slug: string) => void;
-  goHome: () => void;
-  setWorkspaceData: (data: WorkspaceData) => void;
+  setData: (data: AppData) => void;
   setLoadError: (msg: string | null) => void;
-  setTab: (tab: WorkspaceTab) => void;
+  setTab: (tab: AppTab) => void;
 
   /** Persist one document, refreshing local state optimistically. */
   savePortfolio: (doc: Portfolio) => Promise<void>;
@@ -163,7 +153,6 @@ interface AppState {
 }
 
 async function persistDoc(
-  slug: string,
   save: () => Promise<{ ok: boolean; error?: string } | undefined>,
   label: string,
 ): Promise<void> {
@@ -179,10 +168,7 @@ async function persistDoc(
 }
 
 export const useApp = create<AppState>()((set, get) => ({
-  view: "home",
-  workspaces: [],
-  ws: null,
-  slug: null,
+  data: null,
   loadError: null,
   tab: "digest",
 
@@ -198,51 +184,35 @@ export const useApp = create<AppState>()((set, get) => ({
   openBrief: null,
 
   notices: [],
-  reloadWorkspace: () => {},
+  reloadData: () => {},
 
-  setView: (view) => set({ view }),
-  setWorkspaces: (workspaces) => set({ workspaces }),
-  openWorkspace: (slug) =>
-    set({
-      slug,
-      view: "workspace",
-      ws: null,
-      loadError: null,
-      tab: "digest",
-      chat: [],
-      chatStreaming: false,
-      openBriefFile: null,
-      openBrief: null,
-      notices: [],
-    }),
-  goHome: () => set({ view: "home", slug: null, ws: null, chat: [], chatStreaming: false }),
-  setWorkspaceData: (data) => set({ ws: data, loadError: null }),
+  setData: (data) => set({ data, loadError: null }),
   setLoadError: (msg) => set({ loadError: msg }),
   setTab: (tab) => set({ tab }),
 
   savePortfolio: async (doc) => {
-    const { slug, ws } = get();
-    if (!slug || !ws) return;
-    set({ ws: { ...ws, portfolio: doc } });
-    await persistDoc(slug, () => window.api?.savePortfolio(slug, doc), "portfolio");
+    const { data } = get();
+    if (!data) return;
+    set({ data: { ...data, portfolio: doc } });
+    await persistDoc(() => window.api?.savePortfolio(doc), "portfolio");
   },
   saveIps: async (doc) => {
-    const { slug, ws } = get();
-    if (!slug || !ws) return;
-    set({ ws: { ...ws, ips: doc } });
-    await persistDoc(slug, () => window.api?.saveIps(slug, doc), "IPS");
+    const { data } = get();
+    if (!data) return;
+    set({ data: { ...data, ips: doc } });
+    await persistDoc(() => window.api?.saveIps(doc), "IPS");
   },
   saveWatchlist: async (doc) => {
-    const { slug, ws } = get();
-    if (!slug || !ws) return;
-    set({ ws: { ...ws, watchlist: doc } });
-    await persistDoc(slug, () => window.api?.saveWatchlist(slug, doc), "watchlist");
+    const { data } = get();
+    if (!data) return;
+    set({ data: { ...data, watchlist: doc } });
+    await persistDoc(() => window.api?.saveWatchlist(doc), "watchlist");
   },
   saveAlerts: async (doc) => {
-    const { slug, ws } = get();
-    if (!slug || !ws) return;
-    set({ ws: { ...ws, alerts: doc } });
-    await persistDoc(slug, () => window.api?.saveAlerts(slug, doc), "alerts");
+    const { data } = get();
+    if (!data) return;
+    set({ data: { ...data, alerts: doc } });
+    await persistDoc(() => window.api?.saveAlerts(doc), "alerts");
   },
 
   setTheme: (theme) => {
@@ -307,7 +277,7 @@ export const useApp = create<AppState>()((set, get) => ({
     return id;
   },
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
-  setReload: (fn) => set({ reloadWorkspace: fn }),
+  setReload: (fn) => set({ reloadData: fn }),
 }));
 
 // Apply the persisted/system theme to <html> before the first paint. Don't

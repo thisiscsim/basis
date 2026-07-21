@@ -5,7 +5,7 @@
 // verification pass is the product: a fabricated partnership in a brief is
 // worse than no brief.
 //
-// Usage: node app/scripts/brief-llm.mjs --slug <workspace> --ticker <TICKER>
+// Usage: node app/scripts/brief-llm.mjs --ticker <TICKER>
 // Exit codes: 0 ok, 1 unexpected, 2 domain failure, 3 LLM not configured.
 import fs from "node:fs";
 import path from "node:path";
@@ -14,7 +14,7 @@ import { generateText } from "ai";
 import { extractJson, parseBrief, TickerSchema } from "@basis/schema";
 import { isLlmConfigured, llmConfig, reasoningEffort, resolveModel } from "./llm.mjs";
 import { arg, tsvCell } from "./lib/cli.mjs";
-import { resolveWorkspaceDir } from "./lib/workspace-dir.mjs";
+import { ensureDataDir } from "./lib/data-dir.mjs";
 import { cikForTicker, edgarCacheDir, fetchFilingDoc, getSubmissions, recentFilings } from "./lib/edgar.mjs";
 import { extractItem, htmlToText, truncate, verifyQuote } from "./lib/filings.mjs";
 
@@ -73,13 +73,11 @@ function buildPrompt({ ticker, excerpts, retryErrors }) {
 async function main() {
   if (!isLlmConfigured()) fail("No model configured (set an API key in Settings or app/.env.local).", 3);
 
-  const slug = arg("slug");
   const rawTicker = (arg("ticker") || "").toUpperCase().trim();
   const tickerParse = TickerSchema.safeParse(rawTicker);
-  if (!slug || !tickerParse.success) fail("usage: brief-llm.mjs --slug <workspace> --ticker <TICKER>");
+  if (!tickerParse.success) fail("usage: brief-llm.mjs --ticker <TICKER>");
   const ticker = tickerParse.data;
-  const dir = resolveWorkspaceDir(REPO_ROOT, slug);
-  if (!fs.existsSync(dir)) fail(`workspace not found: ${slug}`);
+  const dir = ensureDataDir(REPO_ROOT);
   const cacheDir = edgarCacheDir(REPO_ROOT);
 
   phase(`looking up ${ticker} on EDGAR`);

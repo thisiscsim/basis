@@ -1,27 +1,24 @@
 import { type CSSProperties, memo, useEffect } from "react";
-import { WorkspaceHeader } from "./components/WorkspaceHeader";
-import { WorkspaceRail } from "./components/WorkspaceRail";
+import { AppHeader } from "./components/AppHeader";
+import { SideRail } from "./components/SideRail";
 import { DigestView } from "./components/DigestView";
 import { ResearchView } from "./components/ResearchView";
 import { CoachView } from "./components/CoachView";
-import { Home } from "./components/Home";
-import { useApp, type Notice, type PanelId, type WorkspaceTab } from "./store";
+import { useApp, type AppTab, type Notice, type PanelId } from "./store";
 
 // The shell re-renders on panel resize, notices, etc. These panels take no
 // props and subscribe to the store themselves, so memoizing them keeps an App
 // re-render (e.g. a per-pixel panel drag) from re-rendering all of them.
-const WorkspaceHeaderM = memo(WorkspaceHeader);
-const WorkspaceRailM = memo(WorkspaceRail);
+const AppHeaderM = memo(AppHeader);
+const SideRailM = memo(SideRail);
 
 export function App(): JSX.Element {
-  const view = useApp((s) => s.view);
-  const slug = useApp((s) => s.slug);
   const tab = useApp((s) => s.tab);
-  const hasData = useApp((s) => s.ws !== null);
+  const hasData = useApp((s) => s.data !== null);
   const loadError = useApp((s) => s.loadError);
   const notices = useApp((s) => s.notices);
   const dismissNotice = useApp((s) => s.dismissNotice);
-  const setWorkspaceData = useApp((s) => s.setWorkspaceData);
+  const setData = useApp((s) => s.setData);
   const setLoadError = useApp((s) => s.setLoadError);
   const setReload = useApp((s) => s.setReload);
   const toggleTheme = useApp((s) => s.toggleTheme);
@@ -40,21 +37,16 @@ export function App(): JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleTheme]);
 
-  // Load (and live-reload) the active workspace whenever we enter it. The
-  // watcher fires when the agent/engine scripts write workspace files, so the
-  // UI always reflects disk truth.
+  // Load (and live-reload) the data folder. The watcher fires when the
+  // agent/engine scripts write files, so the UI always reflects disk truth.
   useEffect(() => {
-    if (view !== "workspace" || !slug) return;
-
     const load = () =>
       window.api
-        ?.loadWorkspace(slug)
+        ?.loadData()
         .then((res) => {
-          if (res.ok) {
-            setWorkspaceData({
-              slug: res.slug,
+          if (res?.ok) {
+            setData({
               dir: res.dir ?? null,
-              meta: res.meta ?? null,
               portfolio: res.portfolio ?? { version: 1, currency: "USD", holdings: [] },
               ips: res.ips ?? { version: 1, goals: "", targetAllocation: [], rules: [] },
               watchlist: res.watchlist ?? { version: 1, entries: [] },
@@ -64,42 +56,37 @@ export function App(): JSX.Element {
               briefs: res.briefs ?? [],
             });
           } else {
-            setLoadError(res.error ?? "unknown error");
+            setLoadError(res?.error ?? "unknown error");
           }
         })
         .catch((err) => setLoadError(String(err)));
     setReload(load);
     void load();
 
-    void window.api?.watchWorkspace(slug);
-    const off = window.api?.onWorkspaceChanged((changed) => {
-      if (changed !== slug) return;
+    void window.api?.watchData();
+    const off = window.api?.onDataChanged(() => {
       void load();
     });
     return () => off?.();
-  }, [view, slug, setWorkspaceData, setLoadError, setReload]);
+  }, [setData, setLoadError, setReload]);
 
   return (
     <>
-      {view === "home" ? (
-        <Home />
-      ) : (
-        <div className="ws-shell" style={{ "--left-rail-w": `${panelSizes.left}px` } as CSSProperties}>
-          <WorkspaceHeaderM />
-          <div className="ws-main">
-            <WorkspaceRailM />
-            <PanelResizer panel="left" />
-            <main className="ws-content">
-              <TabBody tab={tab} />
-            </main>
-          </div>
-          {!hasData && (
-            <div className="boot">
-              {loadError ? `Could not load workspace: ${loadError}` : "Loading workspace…"}
-            </div>
-          )}
+      <div className="ws-shell" style={{ "--left-rail-w": `${panelSizes.left}px` } as CSSProperties}>
+        <AppHeaderM />
+        <div className="ws-main">
+          <SideRailM />
+          <PanelResizer panel="left" />
+          <main className="ws-content">
+            <TabBody tab={tab} />
+          </main>
         </div>
-      )}
+        {!hasData && (
+          <div className="boot">
+            {loadError ? `Could not read your data folder: ${loadError}` : "Loading…"}
+          </div>
+        )}
+      </div>
       {notices.length > 0 && (
         <div className="toast-stack" role="region" aria-label="Notifications">
           {notices.map((n) => (
@@ -111,7 +98,7 @@ export function App(): JSX.Element {
   );
 }
 
-function TabBody({ tab }: { tab: WorkspaceTab }): JSX.Element {
+function TabBody({ tab }: { tab: AppTab }): JSX.Element {
   switch (tab) {
     case "digest":
       return <DigestView />;

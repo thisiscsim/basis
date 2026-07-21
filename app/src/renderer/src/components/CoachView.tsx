@@ -9,7 +9,6 @@ type Mode = "tutor" | "coach";
  * user to their own IPS) plus the pre-trade friction gate.
  */
 export function CoachView(): JSX.Element {
-  const slug = useApp((s) => s.slug);
   const chat = useApp((s) => s.chat);
   const streaming = useApp((s) => s.chatStreaming);
   const clearChat = useApp((s) => s.clearChat);
@@ -50,7 +49,7 @@ export function CoachView(): JSX.Element {
       .getState()
       .chat.filter((m) => !m.pending)
       .map(({ role, content: c }) => ({ role, content: c }));
-    const res = await window.api.sendChat({ slug, mode, messages });
+    const res = await window.api.sendChat({ mode, messages });
     if (!res.ok && !res.cancelled) {
       useApp.getState().setChatStreaming(false);
       if (res.error) pushNotice("error", res.error);
@@ -161,17 +160,16 @@ function ChatBubble({ entry }: { entry: ChatEntry }): JSX.Element {
  * you can review your own track record honestly.
  */
 function GateDialog({ onClose }: { onClose: () => void }): JSX.Element {
-  const slug = useApp((s) => s.slug);
   const pushNotice = useApp((s) => s.pushNotice);
   const [trade, setTrade] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ verdict: string; argument: string } | null>(null);
 
   const evaluate = async () => {
-    if (!slug || !trade.trim() || busy) return;
+    if (!trade.trim() || busy) return;
     setBusy(true);
     try {
-      const res = await window.api.evaluateGate(slug, trade.trim());
+      const res = await window.api.evaluateGate(trade.trim());
       if (res.ok && res.argument) {
         setResult({ verdict: res.verdict ?? "unclear", argument: res.argument });
       } else {
@@ -183,8 +181,7 @@ function GateDialog({ onClose }: { onClose: () => void }): JSX.Element {
   };
 
   const record = async (verdict: "proceeded" | "cancelled") => {
-    if (!slug) return;
-    await window.api.recordDecision(slug, {
+    await window.api.recordDecision({
       trade: trade.trim(),
       verdict,
       argument: result?.argument,

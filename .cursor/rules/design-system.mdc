@@ -19,7 +19,7 @@ alwaysApply: false
 - Citation/source links never use `<a href>` — route through `window.api.openExternal` (main validates https).
 
 ## CSS placement
-- Workspace chrome + surfaces: `styles/workspace.css`. UI kit: `styles/ui.css`. Home + toasts + legacy: `styles.css`. Delete dead CSS when retiring a component.
+- Shell chrome + surfaces: `styles/shell.css`. UI kit: `styles/ui.css`. Base/global + toasts: `styles.css`. Delete dead CSS when retiring a component.
 
 ## Store & interaction
 - Document mutations go through the store's `save*` actions (`savePortfolio`, `saveIps`, `saveWatchlist`, `saveAlerts`) — optimistic local update + validated persist + error notice on failure.

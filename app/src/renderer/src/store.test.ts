@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useApp, type WorkspaceData } from "./store";
+import { useApp, type AppData } from "./store";
 
-function seedWorkspace(): WorkspaceData {
+function seedData(): AppData {
   return {
-    slug: "demo",
-    dir: "/tmp/demo",
-    meta: null,
+    dir: "/tmp/basis",
     portfolio: { version: 1, currency: "USD", holdings: [] },
     ips: { version: 1, goals: "", targetAllocation: [], rules: [] },
     watchlist: { version: 1, entries: [] },
@@ -18,9 +16,9 @@ function seedWorkspace(): WorkspaceData {
 
 beforeEach(() => {
   useApp.setState({
-    view: "home",
-    slug: null,
-    ws: null,
+    data: null,
+    loadError: null,
+    tab: "digest",
     chat: [],
     chatStreaming: false,
     notices: [],
@@ -33,45 +31,27 @@ beforeEach(() => {
   });
 });
 
-describe("navigation", () => {
-  it("openWorkspace resets per-workspace state", () => {
-    useApp.setState({ chat: [{ role: "user", content: "hi" }], tab: "coach" });
-    useApp.getState().openWorkspace("demo");
-    const s = useApp.getState();
-    expect(s.view).toBe("workspace");
-    expect(s.slug).toBe("demo");
-    expect(s.ws).toBeNull();
-    expect(s.chat).toEqual([]);
-    expect(s.tab).toBe("digest");
-  });
-
-  it("goHome clears the loaded workspace", () => {
-    useApp.getState().openWorkspace("demo");
-    useApp.getState().setWorkspaceData(seedWorkspace());
-    useApp.getState().goHome();
-    const s = useApp.getState();
-    expect(s.view).toBe("home");
-    expect(s.ws).toBeNull();
-  });
-});
-
 describe("document saves", () => {
   it("savePortfolio updates state optimistically and persists via the bridge", async () => {
-    useApp.getState().openWorkspace("demo");
-    useApp.getState().setWorkspaceData(seedWorkspace());
+    useApp.getState().setData(seedData());
     const doc = { version: 1 as const, currency: "USD", holdings: [{ ticker: "AAPL" }] };
     await useApp.getState().savePortfolio(doc);
-    expect(useApp.getState().ws?.portfolio.holdings).toHaveLength(1);
-    expect(window.api.savePortfolio).toHaveBeenCalledWith("demo", doc);
+    expect(useApp.getState().data?.portfolio.holdings).toHaveLength(1);
+    expect(window.api.savePortfolio).toHaveBeenCalledWith(doc);
   });
 
   it("a failed save surfaces an error notice", async () => {
-    useApp.getState().openWorkspace("demo");
-    useApp.getState().setWorkspaceData(seedWorkspace());
+    useApp.getState().setData(seedData());
     vi.mocked(window.api.saveIps).mockResolvedValueOnce({ ok: false, error: "disk full" });
     await useApp.getState().saveIps({ version: 1, goals: "", targetAllocation: [], rules: [] });
     const notices = useApp.getState().notices;
     expect(notices.some((n) => n.kind === "error" && n.text.includes("disk full"))).toBe(true);
+  });
+
+  it("saves are no-ops before the data folder is loaded", async () => {
+    vi.mocked(window.api.saveWatchlist).mockClear();
+    await useApp.getState().saveWatchlist({ version: 1, entries: [] });
+    expect(window.api.saveWatchlist).not.toHaveBeenCalled();
   });
 });
 

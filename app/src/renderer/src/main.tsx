@@ -6,7 +6,7 @@ import { useApp } from "./store";
 import "./styles/tokens.css";
 import "./styles/fonts.css";
 import "./styles/ui.css";
-import "./styles/workspace.css";
+import "./styles/shell.css";
 import "./styles.css";
 
 // Global handlers for errors the React error boundary can't see (event

@@ -16,12 +16,6 @@ export function safePath(root: string, rel: string[]): string {
   return file;
 }
 
-export const SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
-/** Throw on a malformed renderer-supplied slug (handlers convert to {ok,error}). */
-export function assertSlug(slug: string): void {
-  if (typeof slug !== "string" || !SLUG_RE.test(slug)) throw new Error("invalid workspace id");
-}
-
 /** True only for real web links we're willing to hand to the OS handler. */
 export function isSafeExternalUrl(url: string): boolean {
   try {
@@ -29,17 +23,6 @@ export function isSafeExternalUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-export function slugify(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "workspace"
-  );
 }
 
 /**

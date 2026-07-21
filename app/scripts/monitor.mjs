@@ -3,13 +3,13 @@
 // the primary documents of 10-K/10-Q filings (current + prior of the same
 // form) so diff-llm.mjs can compare them offline. Deterministic — no LLM.
 //
-// Usage: node app/scripts/monitor.mjs --slug <workspace>
+// Usage: node app/scripts/monitor.mjs
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAlerts, parseWatchlist } from "@basis/schema";
-import { arg, readJsonMaybe, tsvCell } from "./lib/cli.mjs";
-import { resolveWorkspaceDir } from "./lib/workspace-dir.mjs";
+import { readJsonMaybe, tsvCell } from "./lib/cli.mjs";
+import { ensureDataDir } from "./lib/data-dir.mjs";
 import {
   cikForTicker,
   edgarCacheDir,
@@ -63,10 +63,7 @@ async function cacheFiling(cik, filing, cikDir) {
 }
 
 async function main() {
-  const slug = arg("slug");
-  if (!slug) fail("usage: monitor.mjs --slug <workspace>");
-  const dir = resolveWorkspaceDir(REPO_ROOT, slug);
-  if (!fs.existsSync(dir)) fail(`workspace not found: ${slug}`);
+  const dir = ensureDataDir(REPO_ROOT);
 
   const watchlistFile = path.join(dir, "watchlist.json");
   const watchlist = parseWatchlist(readJsonMaybe(watchlistFile));

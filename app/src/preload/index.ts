@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import type { Alerts, Brief, Digest, Ips, Meta, Portfolio, Watchlist, Xray } from "@basis/schema";
+import type { Alerts, Brief, Digest, Ips, Portfolio, Watchlist, Xray } from "@basis/schema";
 
 /**
  * The full settings shape as written to disk. The API-key field is write-only
@@ -34,23 +34,6 @@ export interface JobResult {
   error?: string;
 }
 
-export interface WorkspaceSummary {
-  slug: string;
-  title: string;
-  status: string;
-  holdings: number;
-  watching: number;
-  unreadAlerts: number;
-  updatedAt?: string;
-  albumId?: string;
-}
-
-export interface AlbumSummary {
-  id: string;
-  name: string;
-  createdAt: string;
-}
-
 export interface BriefSummary {
   file: string;
   ticker: string;
@@ -58,12 +41,10 @@ export interface BriefSummary {
   generatedAt?: string;
 }
 
-export interface LoadWorkspaceResult {
+export interface LoadDataResult {
   ok: boolean;
   error?: string;
-  slug: string;
   dir?: string;
-  meta?: Meta;
   portfolio?: Portfolio;
   ips?: Ips;
   watchlist?: Watchlist;
@@ -71,12 +52,6 @@ export interface LoadWorkspaceResult {
   xray?: Xray | null;
   digest?: Digest | null;
   briefs?: BriefSummary[];
-}
-
-export interface CreateWorkspaceResult {
-  ok: boolean;
-  slug?: string;
-  error?: string;
 }
 
 export interface LlmInfo {
@@ -110,73 +85,47 @@ export interface GateResult {
 
 /**
  * The safe bridge between the sandboxed renderer and the Node-capable main
- * process. Privileged operations (read workspaces, spawn engine scripts,
- * stream chat) are exposed here.
+ * process. Privileged operations (read the data folder, spawn engine scripts,
+ * stream chat) are exposed here. Single-player: one data folder, no ids.
  */
 const api = {
   ping: (): Promise<string> => ipcRenderer.invoke("ping"),
 
-  // Workspaces
-  listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke("workspaces:list"),
-  createWorkspace: (input: { title: string; tickers?: string[] }): Promise<CreateWorkspaceResult> =>
-    ipcRenderer.invoke("workspace:create", input),
-  loadWorkspace: (slug: string): Promise<LoadWorkspaceResult> => ipcRenderer.invoke("workspace:load", slug),
-  deleteWorkspace: (slug: string): Promise<SaveResult> => ipcRenderer.invoke("workspace:delete", slug),
-  watchWorkspace: (slug: string): Promise<SaveResult> => ipcRenderer.invoke("workspace:watch", slug),
-  saveMeta: (slug: string, patch: Partial<Meta>): Promise<SaveResult> =>
-    ipcRenderer.invoke("meta:save", slug, patch),
-
-  // Folders (albums) on the home grid
-  listAlbums: (): Promise<AlbumSummary[]> => ipcRenderer.invoke("albums:list"),
-  createAlbum: (name: string): Promise<{ ok: boolean; id?: string; name?: string; error?: string }> =>
-    ipcRenderer.invoke("albums:create", name),
-  renameAlbum: (id: string, name: string): Promise<SaveResult> =>
-    ipcRenderer.invoke("albums:rename", id, name),
-  deleteAlbum: (id: string): Promise<SaveResult> => ipcRenderer.invoke("albums:delete", id),
-  setWorkspaceAlbum: (slug: string, albumId: string | null): Promise<SaveResult> =>
-    ipcRenderer.invoke("workspace:setAlbum", slug, albumId),
-
-  // Workspace documents
-  savePortfolio: (slug: string, doc: Portfolio): Promise<SaveResult> =>
-    ipcRenderer.invoke("portfolio:save", slug, doc),
-  saveIps: (slug: string, doc: Ips): Promise<SaveResult> => ipcRenderer.invoke("ips:save", slug, doc),
-  saveWatchlist: (slug: string, doc: Watchlist): Promise<SaveResult> =>
-    ipcRenderer.invoke("watchlist:save", slug, doc),
-  saveAlerts: (slug: string, doc: Alerts): Promise<SaveResult> =>
-    ipcRenderer.invoke("alerts:save", slug, doc),
-  listBriefs: (slug: string): Promise<BriefSummary[]> => ipcRenderer.invoke("briefs:list", slug),
-  loadBrief: (slug: string, file: string): Promise<Brief | null> =>
-    ipcRenderer.invoke("brief:load", slug, file),
+  // Data documents
+  loadData: (): Promise<LoadDataResult> => ipcRenderer.invoke("data:load"),
+  watchData: (): Promise<SaveResult> => ipcRenderer.invoke("data:watch"),
+  savePortfolio: (doc: Portfolio): Promise<SaveResult> => ipcRenderer.invoke("portfolio:save", doc),
+  saveIps: (doc: Ips): Promise<SaveResult> => ipcRenderer.invoke("ips:save", doc),
+  saveWatchlist: (doc: Watchlist): Promise<SaveResult> => ipcRenderer.invoke("watchlist:save", doc),
+  saveAlerts: (doc: Alerts): Promise<SaveResult> => ipcRenderer.invoke("alerts:save", doc),
+  listBriefs: (): Promise<BriefSummary[]> => ipcRenderer.invoke("briefs:list"),
+  loadBrief: (file: string): Promise<Brief | null> => ipcRenderer.invoke("brief:load", file),
 
   // Jobs (engine scripts on the PHASE/PROGRESS protocol)
-  startBrief: (slug: string, ticker: string): Promise<JobResult> =>
-    ipcRenderer.invoke("brief:start", slug, ticker),
-  startXray: (slug: string): Promise<JobResult> => ipcRenderer.invoke("xray:start", slug),
-  startMonitor: (slug: string): Promise<JobResult> => ipcRenderer.invoke("monitor:start", slug),
-  startDigest: (slug: string): Promise<JobResult> => ipcRenderer.invoke("digest:start", slug),
+  startBrief: (ticker: string): Promise<JobResult> => ipcRenderer.invoke("brief:start", ticker),
+  startXray: (): Promise<JobResult> => ipcRenderer.invoke("xray:start"),
+  startMonitor: (): Promise<JobResult> => ipcRenderer.invoke("monitor:start"),
+  startDigest: (): Promise<JobResult> => ipcRenderer.invoke("digest:start"),
 
   // Chat + friction gate
-  sendChat: (input: {
-    slug?: string | null;
-    mode: "tutor" | "coach";
-    messages: ChatMessage[];
-  }): Promise<ChatResult> => ipcRenderer.invoke("chat:send", input),
+  sendChat: (input: { mode: "tutor" | "coach"; messages: ChatMessage[] }): Promise<ChatResult> =>
+    ipcRenderer.invoke("chat:send", input),
   cancelChat: (): Promise<SaveResult> => ipcRenderer.invoke("chat:cancel"),
-  evaluateGate: (slug: string, trade: string): Promise<GateResult> =>
-    ipcRenderer.invoke("gate:evaluate", slug, trade),
-  recordDecision: (
-    slug: string,
-    input: { trade: string; verdict: "proceeded" | "cancelled"; argument?: string },
-  ): Promise<SaveResult> => ipcRenderer.invoke("gate:record", slug, input),
+  evaluateGate: (trade: string): Promise<GateResult> => ipcRenderer.invoke("gate:evaluate", trade),
+  recordDecision: (input: {
+    trade: string;
+    verdict: "proceeded" | "cancelled";
+    argument?: string;
+  }): Promise<SaveResult> => ipcRenderer.invoke("gate:record", input),
 
   // Settings / app plumbing
   getSettings: (): Promise<PublicSettings> => ipcRenderer.invoke("settings:get"),
   setSettings: (patch: Partial<AppSettings>): Promise<PublicSettings> =>
     ipcRenderer.invoke("settings:set", patch),
   llmInfo: (): Promise<LlmInfo> => ipcRenderer.invoke("llm:info"),
-  getWorkspacesDir: (): Promise<string> => ipcRenderer.invoke("home:get"),
-  revealWorkspacesDir: (): Promise<string> => ipcRenderer.invoke("home:reveal"),
-  pickWorkspacesDir: (): Promise<{ ok: boolean; homeDir?: string; canceled?: boolean }> =>
+  getDataDir: (): Promise<string> => ipcRenderer.invoke("home:get"),
+  revealDataDir: (): Promise<string> => ipcRenderer.invoke("home:reveal"),
+  pickDataDir: (): Promise<{ ok: boolean; homeDir?: string; canceled?: boolean }> =>
     ipcRenderer.invoke("home:pick"),
   revealItem: (filePath: string): Promise<void> => ipcRenderer.invoke("shell:reveal", filePath),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
@@ -192,10 +141,10 @@ const api = {
     ipcRenderer.invoke("log:renderer", level, message),
 
   // Push subscriptions (all return an unsubscribe function)
-  onWorkspaceChanged: (cb: (slug: string) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, slug: string) => cb(slug);
-    ipcRenderer.on("workspace:changed", listener);
-    return () => ipcRenderer.removeListener("workspace:changed", listener);
+  onDataChanged: (cb: () => void): (() => void) => {
+    const listener = () => cb();
+    ipcRenderer.on("data:changed", listener);
+    return () => ipcRenderer.removeListener("data:changed", listener);
   },
   onChatDelta: (cb: (delta: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, delta: string) => cb(delta);

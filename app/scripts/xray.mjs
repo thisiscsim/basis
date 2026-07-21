@@ -4,16 +4,16 @@
 // numbers. Works fully offline-from-the-model: without a configured model it
 // still writes the deterministic analysis.
 //
-// Usage: node app/scripts/xray.mjs --slug <workspace>
+// Usage: node app/scripts/xray.mjs
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { generateText } from "ai";
 import { parsePortfolio, parseXray } from "@basis/schema";
 import { isLlmConfigured, llmConfig, reasoningEffort, resolveModel } from "./llm.mjs";
-import { arg, readJsonMaybe, round, tsvCell } from "./lib/cli.mjs";
+import { readJsonMaybe, round, tsvCell } from "./lib/cli.mjs";
 import { deriveWeights } from "./lib/portfolio.mjs";
-import { resolveWorkspaceDir } from "./lib/workspace-dir.mjs";
+import { ensureDataDir } from "./lib/data-dir.mjs";
 import { cikForTicker, edgarCacheDir, getSubmissions } from "./lib/edgar.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,10 +27,7 @@ const fail = (msg, code = 2) => {
 };
 
 async function main() {
-  const slug = arg("slug");
-  if (!slug) fail("usage: xray.mjs --slug <workspace>");
-  const dir = resolveWorkspaceDir(REPO_ROOT, slug);
-  if (!fs.existsSync(dir)) fail(`workspace not found: ${slug}`);
+  const dir = ensureDataDir(REPO_ROOT);
 
   const portfolio = parsePortfolio(readJsonMaybe(path.join(dir, "portfolio.json")));
   if (portfolio.holdings.length === 0) fail("portfolio.json has no holdings — add positions first");
