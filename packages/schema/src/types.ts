@@ -12,6 +12,9 @@ import type {
   DigestItemSchema,
   DigestSchema,
   DriftEntrySchema,
+  GraphEdgeSchema,
+  GraphRelSchema,
+  GraphSchema,
   HoldingSchema,
   IdeaSchema,
   IdeasSchema,
@@ -63,3 +66,7 @@ export type PaperOrder = z.infer<typeof PaperOrderSchema>;
 export type PaperAccount = z.infer<typeof PaperAccountSchema>;
 
 export type Plan = z.infer<typeof PlanSchema>;
+
+export type GraphRel = z.infer<typeof GraphRelSchema>;
+export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
+export type Graph = z.infer<typeof GraphSchema>;

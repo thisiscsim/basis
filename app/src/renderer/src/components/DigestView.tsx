@@ -220,21 +220,39 @@ function AlertRow({ alert }: { alert: Alert }): JSX.Element {
   return (
     <div className={`alert-row ${alert.read ? "" : "unread"}`}>
       <button className="alert-row-main" onClick={toggle} aria-expanded={expanded}>
-        <Badge variant="accent">{alert.ticker}</Badge>
+        {alert.ticker ? (
+          <Badge variant="accent">{alert.ticker}</Badge>
+        ) : (
+          <Badge variant="neutral">plan</Badge>
+        )}
         <span className="alert-form">{alert.form}</span>
         <span className="alert-title">{alert.title}</span>
+        {alert.related.length > 0 && (
+          <span className="alert-related" title={alert.related.map((r) => r.path).join("\n")}>
+            → {alert.related.map((r) => r.ticker).join(", ")}
+          </span>
+        )}
         <span className="alert-date">{alert.filedAt}</span>
       </button>
       {expanded && (
         <div className="alert-detail">
+          {alert.related.length > 0 && (
+            <ul className="alert-related-list">
+              {alert.related.map((r) => (
+                <li key={r.ticker}>
+                  <strong>{r.ticker}</strong>: {r.path}
+                </li>
+              ))}
+            </ul>
+          )}
           {alert.summary ? (
             <p className="alert-summary">{alert.summary}</p>
-          ) : (
+          ) : alert.kind === "filing" ? (
             <p className="muted small">
               No change summary yet — it's written during <strong>Update filings</strong> when a model is
               configured.
             </p>
-          )}
+          ) : null}
           {alert.url && (
             <button className="citation-link" onClick={() => void window.api.openExternal(alert.url!)}>
               <Icon name="share-os" size={12} />

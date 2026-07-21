@@ -3,6 +3,7 @@ import {
   BacktestSchema,
   BriefSchema,
   DigestSchema,
+  GraphSchema,
   IdeasSchema,
   IpsSchema,
   MetaSchema,
@@ -17,6 +18,7 @@ import type {
   Backtest,
   Brief,
   Digest,
+  Graph,
   Ideas,
   Ips,
   Meta,
@@ -80,6 +82,10 @@ export function parsePaper(input: unknown): PaperAccount {
 
 export function parsePlan(input: unknown): Plan {
   return PlanSchema.parse(input ?? {});
+}
+
+export function parseGraph(input: unknown): Graph {
+  return GraphSchema.parse(input ?? {});
 }
 
 export interface BriefParseResult {

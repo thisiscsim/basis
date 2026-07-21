@@ -7,6 +7,22 @@ versions.
 
 ## [Unreleased]
 
+### Added (Phase 5 — knowledge graph)
+
+- **Relationship extraction** (`graph.json` + `graph-llm.mjs`) — for watched/
+  held companies with cached filings, the agent extracts named business
+  relationships (supplier/customer/partner/competitor/investor/subsidiary)
+  from 10-K Item 1/1A text. Same citation discipline as briefs: every edge
+  carries an exact verbatim quote, verified against the filing; unverified
+  edges are dropped. Runs during Update filings (capped at 3 tickers/run),
+  merged + deduped by filer/relationship/normalized-counterparty.
+- **Second-order inference** — when the monitor lands a new filing alert, a
+  deterministic 1-2 hop traversal connects the filer to the user's holdings/
+  watchlist ("X lists Y as a supplier", "both A and B relate to C") and
+  annotates the alert with `related[]`; the inbox shows related-holding
+  badges. The Research view gains a **Connections** section listing every
+  quoted edge touching the open ticker. Coverage, not edge.
+
 ### Added (Phase 4 — the Lab)
 
 - **Backtest copilot** — a pure, preset-based engine (`lib/backtest.mjs`:

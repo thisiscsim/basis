@@ -32,6 +32,7 @@ import {
   parseBacktest,
   parseBrief,
   parseDigest,
+  parseGraph,
   parseIdeas,
   parseIps,
   parsePaper,
@@ -67,6 +68,7 @@ const MONITOR_SCRIPT = join(SCRIPTS_DIR, "monitor.mjs");
 const DIFF_SCRIPT = join(SCRIPTS_DIR, "diff-llm.mjs");
 const DIGEST_SCRIPT = join(SCRIPTS_DIR, "digest-llm.mjs");
 const GRADE_IDEAS_SCRIPT = join(SCRIPTS_DIR, "grade-ideas.mjs");
+const GRAPH_SCRIPT = join(SCRIPTS_DIR, "graph-llm.mjs");
 const BACKTEST_SCRIPT = join(SCRIPTS_DIR, "backtest.mjs");
 const PAPER_MARK_SCRIPT = join(SCRIPTS_DIR, "paper-mark.mjs");
 
@@ -270,6 +272,7 @@ function scaffoldDataDir(): void {
       ["alerts.json", parseAlerts({})],
       ["paper.json", parsePaper({})],
       ["plan.json", parsePlan({})],
+      ["graph.json", parseGraph({})],
     ];
     for (const [file, doc] of seed) {
       const path = join(DATA_DIR, file);
@@ -447,6 +450,7 @@ function loadData() {
       digest: latestDigest(),
       briefs: listBriefs(),
       ideas: parseIdeas(readJsonMaybe(join(DATA_DIR, "ideas.json"))),
+      graph: parseGraph(readJsonMaybe(join(DATA_DIR, "graph.json"))),
       paper: parsePaper(readJsonMaybe(join(DATA_DIR, "paper.json"))),
       plan: parsePlan(readJsonMaybe(join(DATA_DIR, "plan.json"))),
       backtests: listBacktests(),
@@ -802,6 +806,8 @@ app.whenReady().then(() => {
     if (llmInfo().configured) {
       const diffed = await runScript(DIFF_SCRIPT, [], event, "monitor");
       if (!diffed.ok) notes.push(`diff summaries failed: ${diffed.error}`);
+      const graphed = await runScript(GRAPH_SCRIPT, [], event, "monitor");
+      if (!graphed.ok) notes.push(`graph extraction failed: ${graphed.error}`);
     }
     const graded = await runScript(GRADE_IDEAS_SCRIPT, [], event, "monitor");
     if (!graded.ok) notes.push(`idea grading failed: ${graded.error}`);

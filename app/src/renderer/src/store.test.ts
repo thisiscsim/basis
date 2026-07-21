@@ -12,6 +12,7 @@ function seedData(): AppData {
     digest: null,
     briefs: [],
     ideas: { version: 1, ideas: [] },
+    graph: { version: 1, edges: [] },
     paper: { version: 1, startCash: 100_000, cash: 100_000, positions: [], orders: [], equity: [] },
     plan: { version: 1, rebalanceBandPct: 5 },
     backtests: [],
