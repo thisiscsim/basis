@@ -54,6 +54,7 @@ export function App(): JSX.Element {
               xray: res.xray ?? null,
               digest: res.digest ?? null,
               briefs: res.briefs ?? [],
+              ideas: res.ideas ?? { version: 1, ideas: [] },
             });
           } else {
             setLoadError(res?.error ?? "unknown error");

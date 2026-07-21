@@ -9,6 +9,7 @@ import {
   parseAlerts,
   parseBrief,
   parseDigest,
+  parseIdeas,
   parseIps,
   parseMeta,
   parsePortfolio,
@@ -71,6 +72,33 @@ describe("defaults-filling parsers tolerate empty/partial input", () => {
   it("parseIps caps rule count and length", () => {
     expect(() => parseIps({ rules: Array(51).fill("r") })).toThrow();
     expect(() => parseIps({ rules: ["x".repeat(501)] })).toThrow();
+  });
+
+  it("holdings default source=manual; broker fields are bounded", () => {
+    const p = parsePortfolio({ holdings: [{ ticker: "AAPL" }] });
+    expect(p.holdings[0].source).toBe("manual");
+    expect(() => parsePortfolio({ holdings: [{ ticker: "AAPL", lastPrice: Infinity }] })).toThrow();
+  });
+
+  it("IPS allocation buckets carry validated tickers", () => {
+    const ips = parseIps({ targetAllocation: [{ label: "Equities", pct: 70, tickers: ["VTI"] }] });
+    expect(ips.targetAllocation[0].tickers).toEqual(["VTI"]);
+    expect(() => parseIps({ targetAllocation: [{ label: "E", pct: 70, tickers: ["../etc"] }] })).toThrow();
+  });
+
+  it("xray drift entries are bounded to ±100 points", () => {
+    const x = parseXray({ drift: [{ label: "Bonds", targetPct: 30, actualPct: 15, driftPct: -15 }] });
+    expect(x.drift[0].driftPct).toBe(-15);
+    expect(() =>
+      parseXray({ drift: [{ label: "B", targetPct: 0, actualPct: 0, driftPct: Infinity }] }),
+    ).toThrow();
+  });
+
+  it("ideas are capped and returns must be finite", () => {
+    const ideas = parseIdeas({ ideas: [{ id: "a", at: "2026-07-20", kind: "gate", verdict: "cancelled" }] });
+    expect(ideas.ideas[0].kind).toBe("gate");
+    expect(() => parseIdeas({ ideas: [{ id: "a", at: "x", kind: "brief", returnPct: Infinity }] })).toThrow();
+    expect(() => parseIdeas({ ideas: Array(501).fill({ id: "a", at: "x", kind: "note" }) })).toThrow();
   });
 });
 

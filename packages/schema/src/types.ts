@@ -7,7 +7,10 @@ import type {
   ClaimSchema,
   DigestItemSchema,
   DigestSchema,
+  DriftEntrySchema,
   HoldingSchema,
+  IdeaSchema,
+  IdeasSchema,
   IpsSchema,
   MetaSchema,
   PortfolioSchema,
@@ -38,4 +41,8 @@ export type DigestItem = z.infer<typeof DigestItemSchema>;
 export type Digest = z.infer<typeof DigestSchema>;
 
 export type XrayGroup = z.infer<typeof XrayGroupSchema>;
+export type DriftEntry = z.infer<typeof DriftEntrySchema>;
 export type Xray = z.infer<typeof XraySchema>;
+
+export type Idea = z.infer<typeof IdeaSchema>;
+export type Ideas = z.infer<typeof IdeasSchema>;

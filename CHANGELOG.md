@@ -7,6 +7,28 @@ versions.
 
 ## [Unreleased]
 
+### Added (Phase 3 — discipline layer)
+
+- **Price layer** (`lib/prices.mjs`) — daily closes from Yahoo Finance (free, no key)
+  or Tiingo (keyed, Settings → Data Sources), cached ~20h under the shared
+  cache dir. Powers everything below; degrades gracefully when a ticker
+  doesn't resolve.
+- **Read-only broker sync (Plaid)** — bring-your-own Plaid credentials
+  (sandbox free); Plaid Link opens in an isolated window, only
+  `/investments/holdings/get` is ever called, and holdings map into
+  `portfolio.json` (`source: "broker"` rows replaced wholesale, manual rows
+  survive, cash/unmapped securities skipped and counted). Secrets stay
+  main-side; the renderer only sees booleans.
+- **Drift detection** — IPS allocation buckets now carry assigned tickers;
+  the X-ray values holdings at market (shares × close) when possible and
+  reports actual vs target per bucket with a ±5-point band, drift meters with
+  target ticks in the Digest view, and an informational rebalance note
+  (Basis never executes trades).
+- **Idea log** (`ideas.json`) — every brief and friction-gate decision is
+  logged and graded against daily closes vs SPY (`grade-ideas.mjs`, chained
+  into Update filings). The Coach view gains a Track record modal — the
+  honest mirror.
+
 ### Changed
 
 - **Single-player: removed workspaces and folders.** There is exactly one

@@ -122,6 +122,55 @@ function XrayCard(): JSX.Element {
             <span>Top 5 ~{Math.round(xray.concentration.top5Pct)}%</span>
             <span>Largest sector ~{Math.round(xray.concentration.sectorMaxPct)}%</span>
           </div>
+          {xray.drift.length > 0 && (
+            <div className="drift-block">
+              <h3 className="drift-title">Drift vs your IPS targets</h3>
+              <div className="meter-list">
+                {xray.drift.map((d) => (
+                  <div
+                    key={d.label}
+                    className="meter-row"
+                    title={`Target ${d.targetPct}% / actual ${d.actualPct}%`}
+                  >
+                    <span className="meter-label">{d.label}</span>
+                    <span className="meter drift-meter">
+                      <span
+                        className="meter-target"
+                        style={{ left: `${Math.min(d.targetPct, 100)}%` }}
+                        aria-hidden
+                      />
+                      <span
+                        className={`meter-fill ${Math.abs(d.driftPct) > 5 ? "warn" : ""}`}
+                        style={{ width: `${Math.min(d.actualPct, 100)}%` }}
+                      />
+                    </span>
+                    <span className={`meter-pct ${Math.abs(d.driftPct) > 5 ? "drift-off" : ""}`}>
+                      {d.driftPct > 0 ? "+" : ""}
+                      {d.driftPct}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {(() => {
+                const worst = [...xray.drift].sort((a, b) => Math.abs(b.driftPct) - Math.abs(a.driftPct))[0];
+                if (!worst || Math.abs(worst.driftPct) <= 5) {
+                  return <p className="muted small">Within your 5-point band. Nothing to do.</p>;
+                }
+                const over = xray.drift.filter((d) => d.driftPct > 5).map((d) => d.label);
+                const under = xray.drift.filter((d) => d.driftPct < -5).map((d) => d.label);
+                return (
+                  <p className="muted small">
+                    To get back to target, future contributions (or a rebalance) would shift ~
+                    {Math.abs(worst.driftPct)} pts
+                    {over.length > 0 && under.length > 0
+                      ? ` from ${over.join(", ")} toward ${under.join(", ")}`
+                      : ""}
+                    . Informational only — Basis never executes trades.
+                  </p>
+                );
+              })()}
+            </div>
+          )}
           {xray.warnings.length > 0 && (
             <ul className="xray-warnings">
               {xray.warnings.map((w, i) => (

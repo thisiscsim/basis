@@ -15,6 +15,8 @@ interface HoldingDraft {
   weightPct: string;
   costBasis: string;
   account: string;
+  /** Carried through so hand-edits to a synced row don't lose its provenance. */
+  source: Holding["source"];
 }
 
 function toDraft(h: Holding): HoldingDraft {
@@ -24,6 +26,7 @@ function toDraft(h: Holding): HoldingDraft {
     weightPct: h.weightPct != null ? String(h.weightPct) : "",
     costBasis: h.costBasis != null ? String(h.costBasis) : "",
     account: h.account ?? "",
+    source: h.source,
   };
 }
 
@@ -48,6 +51,7 @@ function fromDraft(d: HoldingDraft): Holding | string {
     weightPct,
     costBasis,
     account: d.account.trim() || undefined,
+    source: d.source,
   };
 }
 
@@ -155,7 +159,10 @@ export function PortfolioModal({ onClose }: { onClose: () => void }): JSX.Elemen
         size="sm"
         icon="plus-large"
         onClick={() =>
-          setRows((prev) => [...prev, { ticker: "", shares: "", weightPct: "", costBasis: "", account: "" }])
+          setRows((prev) => [
+            ...prev,
+            { ticker: "", shares: "", weightPct: "", costBasis: "", account: "", source: "manual" },
+          ])
         }
       >
         Add holding
@@ -163,6 +170,13 @@ export function PortfolioModal({ onClose }: { onClose: () => void }): JSX.Elemen
       {error && <p className="ui-form-error">{error}</p>}
     </Modal>
   );
+}
+
+/** Draft row for one target-allocation bucket (tickers edited as a comma list). */
+interface BucketDraft {
+  label: string;
+  pct: string;
+  tickers: string;
 }
 
 export function IpsModal({ onClose }: { onClose: () => void }): JSX.Element {
@@ -173,6 +187,13 @@ export function IpsModal({ onClose }: { onClose: () => void }): JSX.Element {
   const [risk, setRisk] = useState(ips?.riskTolerance ?? "");
   const [rules, setRules] = useState<string[]>(ips?.rules ?? []);
   const [ruleDraft, setRuleDraft] = useState("");
+  const [buckets, setBuckets] = useState<BucketDraft[]>(() =>
+    (ips?.targetAllocation ?? []).map((b) => ({
+      label: b.label,
+      pct: String(b.pct),
+      tickers: b.tickers.join(", "),
+    })),
+  );
   const [error, setError] = useState<string | null>(null);
 
   const addRule = () => {
@@ -181,6 +202,9 @@ export function IpsModal({ onClose }: { onClose: () => void }): JSX.Element {
     setRules((prev) => [...prev, rule].slice(0, 50));
     setRuleDraft("");
   };
+
+  const updateBucket = (i: number, patch: Partial<BucketDraft>) =>
+    setBuckets((prev) => prev.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
 
   const save = async () => {
     let horizonYears: number | undefined;
@@ -192,11 +216,33 @@ export function IpsModal({ onClose }: { onClose: () => void }): JSX.Element {
       }
       horizonYears = v;
     }
+    const targetAllocation: Ips["targetAllocation"] = [];
+    for (const bucket of buckets) {
+      const label = bucket.label.trim();
+      if (!label) continue; // skip blank rows
+      const pct = Number(bucket.pct);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        setError(`${label}: target % must be 0-100.`);
+        return;
+      }
+      const tickers = bucket.tickers
+        .split(/[\s,]+/)
+        .map((t) => t.toUpperCase().trim())
+        .filter(Boolean);
+      for (const t of tickers) {
+        if (!TICKER_RE.test(t)) {
+          setError(`${label}: "${t}" is not a valid ticker.`);
+          return;
+        }
+      }
+      targetAllocation.push({ label: label.slice(0, 64), pct, tickers: tickers.slice(0, 100) });
+    }
     const next: Ips = {
       ...(ips ?? { version: 1, goals: "", targetAllocation: [], rules: [] }),
       goals: goals.slice(0, 4000),
       horizonYears,
       riskTolerance: risk === "low" || risk === "medium" || risk === "high" ? risk : undefined,
+      targetAllocation: targetAllocation.slice(0, 32),
       rules,
     };
     await saveIps(next);
@@ -248,6 +294,57 @@ export function IpsModal({ onClose }: { onClose: () => void }): JSX.Element {
           </Select>
         </Field>
       </div>
+      <Field label="Target allocation (drives drift detection)">
+        <div className="holdings-table" role="table" aria-label="Target allocation">
+          {buckets.length > 0 && (
+            <div className="bucket-row holding-row-head" role="row">
+              <span>Bucket</span>
+              <span>Target %</span>
+              <span>Tickers in this bucket</span>
+              <span />
+            </div>
+          )}
+          {buckets.map((bucket, i) => (
+            <div key={i} className="bucket-row" role="row">
+              <input
+                className="url-input"
+                value={bucket.label}
+                placeholder="US equities"
+                onChange={(e) => updateBucket(i, { label: e.target.value })}
+              />
+              <input
+                className="url-input"
+                value={bucket.pct}
+                placeholder="70"
+                inputMode="decimal"
+                onChange={(e) => updateBucket(i, { pct: e.target.value })}
+              />
+              <input
+                className="url-input"
+                value={bucket.tickers}
+                placeholder="VTI, AAPL"
+                onChange={(e) => updateBucket(i, { tickers: e.target.value.toUpperCase() })}
+              />
+              <button
+                className="clip-row-remove"
+                title="Remove bucket"
+                aria-label={`Remove ${bucket.label || "bucket"}`}
+                onClick={() => setBuckets((prev) => prev.filter((_, idx) => idx !== i))}
+              >
+                <Icon name="trash-can" size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="plus-large"
+          onClick={() => setBuckets((prev) => [...prev, { label: "", pct: "", tickers: "" }])}
+        >
+          Add bucket
+        </Button>
+      </Field>
       <Field label="Rules">
         <div className="url-row">
           <input

@@ -26,6 +26,7 @@ Every file in the data folder is validated by the zod schemas in `packages/schem
 - `ips.json` (`IpsSchema`) — goals, horizon, risk tolerance, target allocation, and the rules the friction gate argues from.
 - `watchlist.json` (`WatchlistSchema`) — monitored tickers + the monitor's per-ticker cursor.
 - `alerts.json` (`AlertsSchema`) — the filing inbox (form, date, accession, url, optional diff summary).
+- `ideas.json` (`IdeasSchema`) — the idea log: every brief and gate decision, graded later against daily closes vs SPY (`grade-ideas.mjs`).
 - `briefs/<ticker>-<date>.json` (`BriefSchema`) — DD briefs; every claim carries `{quote, source, sourceUrl, verified}`.
 - `digests/<date>.json` (`DigestSchema`) — periodic digests.
 - `xray.json` (`XraySchema`) — deterministic exposure analysis + optional LLM narrative.
@@ -34,7 +35,9 @@ Two parse strategies (`packages/schema/src/index.ts`): defaults-filling throwing
 
 ## Helper scripts (`app/scripts/`)
 
-`monitor.mjs` (fetch new EDGAR filings), `diff-llm.mjs` (filing change summaries), `brief-llm.mjs` (cited DD brief + citation verification), `xray.mjs` (deterministic exposure + narrative), `digest-llm.mjs` (digest, deterministic fallback). Shared libs: `lib/edgar.mjs` (EDGAR client: CIK mapping, submissions, doc cache, 10 req/s throttle, contact-email User-Agent), `lib/filings.mjs` (HTML→text, Item extraction, quote verification), `lib/portfolio.mjs`, `lib/data-dir.mjs`, `lib/cli.mjs`, and `llm.mjs` (provider resolver over `@basis/schema` llm-config).
+`monitor.mjs` (fetch new EDGAR filings), `diff-llm.mjs` (filing change summaries), `brief-llm.mjs` (cited DD brief + citation verification), `xray.mjs` (deterministic exposure + drift vs the IPS + narrative), `digest-llm.mjs` (digest, deterministic fallback), `grade-ideas.mjs` (idea-log returns vs SPY). Shared libs: `lib/edgar.mjs` (EDGAR client: CIK mapping, submissions, doc cache, 10 req/s throttle, contact-email User-Agent), `lib/prices.mjs` (daily closes: free Yahoo default, keyed Tiingo option, cached), `lib/filings.mjs` (HTML→text, Item extraction, quote verification), `lib/drift.mjs`, `lib/portfolio.mjs`, `lib/ideas.mjs`, `lib/data-dir.mjs`, `lib/cli.mjs`, and `llm.mjs` (provider resolver over `@basis/schema` llm-config).
+
+Read-only broker sync (Plaid Investments, user-supplied credentials) lives in the main process (`app/src/main/plaid.ts`); it only ever calls `/investments/holdings/get` and maps into `portfolio.json` (`source: "broker"` rows replaced wholesale; manual rows survive).
 
 ## Scoped conventions
 
@@ -44,5 +47,5 @@ Area-specific rules live in `.cursor/rules/` (IPC/main-process, renderer design 
 
 - Generated artifacts live in the data folder. In the app it resolves to the user's Basis home (`~/Documents/Basis`, configurable); the scripts honor `BASIS_DATA_DIR` and fall back to the repo's `data/` in dev. Don't write outside the data folder except code changes you were explicitly asked to make.
 - **Honesty rules are product rules**: no buy/sell/hold instructions, no price predictions, every research claim needs a verifiable citation, deterministic numbers are ground truth the model may not contradict, and the boring foundation (diversified low-fee indexing) is never talked down.
-- Data source is SEC EDGAR only (free, no key): respect the fair-access policy — declarative User-Agent with contact email, ≤10 requests/second, cache aggressively.
+- Data sources: SEC EDGAR (filings; respect the fair-access policy — declarative User-Agent with contact email, ≤10 requests/second, cache aggressively), Yahoo Finance or Tiingo (daily closes only, cached ~20h), and optionally the user's own Plaid credentials (holdings, read-only). Never add a data dependency that requires an account without a free path.
 - Only reference filings that actually exist; unverified claims are dropped, not shown.

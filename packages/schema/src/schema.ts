@@ -61,7 +61,7 @@ export const MetaSchema = z.object({
   albumId: z.string().max(64).optional(),
 });
 
-/** One position the user holds (user-entered; no broker linking in Phase 1-2). */
+/** One position the user holds (entered by hand or synced read-only from a broker). */
 export const HoldingSchema = z.object({
   ticker: TickerSchema,
   name: z.string().max(256).optional(),
@@ -73,14 +73,20 @@ export const HoldingSchema = z.object({
   costBasis: bounded(1e12).optional(),
   account: z.string().max(64).optional(),
   notes: z.string().max(500).optional(),
+  /** Where this row came from; broker rows are replaced wholesale on sync. */
+  source: z.enum(["manual", "broker"]).default("manual"),
+  /** Last known per-share price (broker institution price or EOD close). */
+  lastPrice: bounded(1e9).optional(),
 });
 
-/** workspaces/<slug>/portfolio.json — the user's holdings. */
+/** portfolio.json — the user's holdings. */
 export const PortfolioSchema = z.object({
   version: z.literal(1).default(1),
   currency: z.string().max(8).default("USD"),
   holdings: z.array(HoldingSchema).max(500).default([]),
   updatedAt: z.string().max(64).optional(),
+  /** Last successful read-only broker sync. */
+  lastSyncedAt: z.string().max(64).optional(),
 });
 
 /**
@@ -94,7 +100,14 @@ export const IpsSchema = z.object({
   horizonYears: bounded(120).optional(),
   riskTolerance: z.enum(["low", "medium", "high"]).optional(),
   targetAllocation: z
-    .array(z.object({ label: z.string().min(1).max(64), pct: pct() }))
+    .array(
+      z.object({
+        label: z.string().min(1).max(64),
+        pct: pct(),
+        /** Holdings assigned to this bucket (drives drift detection). */
+        tickers: z.array(TickerSchema).max(100).default([]),
+      }),
+    )
     .max(32)
     .default([]),
   /** The rules the user committed to ("no selling on drawdowns < 25%"). */
@@ -207,11 +220,20 @@ export const XrayGroupSchema = z.object({
  * deterministic (scripts compute it from portfolio + EDGAR sector data); only
  * `narrative` is LLM prose, and it may not contradict the numbers.
  */
+/** Actual vs IPS-target exposure for one allocation bucket. */
+export const DriftEntrySchema = z.object({
+  label: z.string().min(1).max(64),
+  targetPct: pct(),
+  actualPct: pct(),
+  /** actual - target, in percentage points. */
+  driftPct: z.number().finite().min(-100).max(100),
+});
+
 export const XraySchema = z.object({
   version: z.literal(1).default(1),
   generatedAt: z.string().max(64).optional(),
-  /** How weights were derived: explicit weightPct, cost basis, or equal-weight fallback. */
-  weighting: z.enum(["weights", "costBasis", "equal"]).default("equal"),
+  /** How weights were derived: market value, explicit weightPct, cost basis, or equal-weight fallback. */
+  weighting: z.enum(["market", "weights", "costBasis", "equal"]).default("equal"),
   bySector: z.array(XrayGroupSchema).max(64).default([]),
   topHoldings: z
     .array(z.object({ ticker: TickerSchema, pct: pct() }))
@@ -225,5 +247,34 @@ export const XraySchema = z.object({
     })
     .default({}),
   warnings: z.array(z.string().max(500)).max(20).default([]),
+  /** Actual vs IPS-target allocation (only when the IPS assigns tickers to buckets). */
+  drift: z.array(DriftEntrySchema).max(32).default([]),
   narrative: z.string().max(8000).optional(),
+});
+
+/**
+ * ideas.json — the idea log: every surfaced brief, gate decision, or note,
+ * graded later against what actually happened (vs SPY). The point is an
+ * honest record of whether the system's (and the user's) ideas have any edge.
+ */
+export const IdeaSchema = z.object({
+  id: z.string().min(1).max(128),
+  at: z.string().max(64),
+  kind: z.enum(["brief", "gate", "note"]),
+  ticker: TickerSchema.optional(),
+  text: z.string().max(1000).default(""),
+  /** Gate ideas: what the user decided. */
+  verdict: z.enum(["proceeded", "cancelled"]).optional(),
+  /** Close on/just before `at`, filled lazily by grade-ideas.mjs. */
+  priceAtLog: bounded(1e9).optional(),
+  benchmarkPriceAtLog: bounded(1e9).optional(),
+  gradedAt: z.string().max(64).optional(),
+  /** Since-log total return, percent. */
+  returnPct: z.number().finite().min(-100).max(100_000).optional(),
+  benchmarkReturnPct: z.number().finite().min(-100).max(100_000).optional(),
+});
+
+export const IdeasSchema = z.object({
+  version: z.literal(1).default(1),
+  ideas: z.array(IdeaSchema).max(500).default([]),
 });

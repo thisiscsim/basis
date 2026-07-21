@@ -15,6 +15,7 @@ import { extractJson, parseBrief, TickerSchema } from "@basis/schema";
 import { isLlmConfigured, llmConfig, reasoningEffort, resolveModel } from "./llm.mjs";
 import { arg, tsvCell } from "./lib/cli.mjs";
 import { ensureDataDir } from "./lib/data-dir.mjs";
+import { appendIdea } from "./lib/ideas.mjs";
 import { cikForTicker, edgarCacheDir, fetchFilingDoc, getSubmissions, recentFilings } from "./lib/edgar.mjs";
 import { extractItem, htmlToText, truncate, verifyQuote } from "./lib/filings.mjs";
 
@@ -190,6 +191,18 @@ async function main() {
   fs.mkdirSync(briefsDir, { recursive: true });
   const outFile = path.join(briefsDir, `${ticker}-${new Date().toISOString().slice(0, 10)}.json`);
   fs.writeFileSync(outFile, `${JSON.stringify(final.brief, null, 2)}\n`);
+
+  // Log to the idea log so grade-ideas.mjs can track what happened after.
+  try {
+    appendIdea(dir, {
+      id: `brief-${path.basename(outFile, ".json")}`,
+      kind: "brief",
+      ticker,
+      text: `Brief generated: ${(final.brief.summary || company.name || ticker).slice(0, 200)}`,
+    });
+  } catch {
+    // the brief itself is the deliverable; idea logging is best-effort
+  }
   progress(100);
   console.log(`DONE ${path.basename(outFile)}`);
 }

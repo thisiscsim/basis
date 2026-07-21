@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import type { Alerts, Brief, Digest, Ips, Portfolio, Watchlist, Xray } from "@basis/schema";
+import type { Alerts, Brief, Digest, Ideas, Ips, Portfolio, Watchlist, Xray } from "@basis/schema";
 
 /**
- * The full settings shape as written to disk. The API-key field is write-only
- * from the renderer's perspective: it can be SET via `setSettings`, but is
- * never returned by `getSettings` (see `PublicSettings`).
+ * The full settings shape as written to disk. Key/secret fields are
+ * write-only from the renderer's perspective: they can be SET via
+ * `setSettings`, but are never returned by `getSettings` (see
+ * `PublicSettings`).
  */
 export interface AppSettings {
   homeDir?: string;
@@ -12,15 +13,23 @@ export interface AppSettings {
   agentApiKey?: string;
   reasoningEffort: "low" | "medium" | "high";
   edgarContact?: string;
+  pricesProvider: "yahoo" | "tiingo";
+  pricesApiKey?: string;
+  plaidClientId?: string;
+  plaidSecret?: string;
+  plaidEnv: "sandbox" | "production";
 }
 
 /**
- * What the renderer actually receives: everything except the raw key value,
- * plus a boolean for whether a key is set. The UI only ever needs "is a key
- * configured", never the secret itself, so the plaintext key never crosses IPC.
+ * What the renderer actually receives: everything except raw key/secret
+ * values, plus booleans for whether each is set. The UI only ever needs "is
+ * it configured", never the secret itself, so plaintext never crosses IPC.
  */
-export type PublicSettings = Omit<AppSettings, "agentApiKey"> & {
+export type PublicSettings = Omit<AppSettings, "agentApiKey" | "pricesApiKey" | "plaidSecret"> & {
   hasAgentKey: boolean;
+  hasPricesKey: boolean;
+  hasPlaidCredentials: boolean;
+  plaidLinked: boolean;
 };
 
 export interface SaveResult {
@@ -52,6 +61,15 @@ export interface LoadDataResult {
   xray?: Xray | null;
   digest?: Digest | null;
   briefs?: BriefSummary[];
+  ideas?: Ideas;
+}
+
+export interface PlaidSyncResult {
+  ok: boolean;
+  imported?: number;
+  skipped?: number;
+  cancelled?: boolean;
+  error?: string;
 }
 
 export interface LlmInfo {
@@ -106,6 +124,11 @@ const api = {
   startXray: (): Promise<JobResult> => ipcRenderer.invoke("xray:start"),
   startMonitor: (): Promise<JobResult> => ipcRenderer.invoke("monitor:start"),
   startDigest: (): Promise<JobResult> => ipcRenderer.invoke("digest:start"),
+
+  // Read-only broker sync (Plaid)
+  plaidLink: (): Promise<PlaidSyncResult> => ipcRenderer.invoke("plaid:link"),
+  plaidSync: (): Promise<PlaidSyncResult> => ipcRenderer.invoke("plaid:sync"),
+  plaidUnlink: (): Promise<SaveResult> => ipcRenderer.invoke("plaid:unlink"),
 
   // Chat + friction gate
   sendChat: (input: { mode: "tutor" | "coach"; messages: ChatMessage[] }): Promise<ChatResult> =>
