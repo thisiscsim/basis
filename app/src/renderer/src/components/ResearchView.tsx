@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Brief } from "@basis/schema";
+import type { Brief, GraphEdge } from "@basis/schema";
 import { useApp } from "../store";
 import { runJob } from "../lib/jobs";
 import { relativeTime } from "../lib/time";
@@ -161,6 +161,8 @@ function BriefReader({ brief }: { brief: Brief }): JSX.Element {
         </section>
       ))}
 
+      <Connections ticker={brief.ticker} />
+
       {brief.sources.length > 0 && (
         <footer className="brief-sources">
           <h2>Sources</h2>
@@ -183,5 +185,68 @@ function BriefReader({ brief }: { brief: Brief }): JSX.Element {
         gate, not an edge. Not investment advice.
       </p>
     </article>
+  );
+}
+
+/**
+ * Knowledge-graph edges touching this ticker (filer-side or counterparty),
+ * each backed by a verified verbatim quote. Coverage, not edge.
+ */
+function Connections({ ticker }: { ticker: string }): JSX.Element | null {
+  const edges = useApp((s) => s.data?.graph.edges ?? []);
+  const relevant = edges.filter((e) => e.from === ticker || e.toTicker === ticker).slice(0, 12);
+  if (relevant.length === 0) return null;
+  return (
+    <section className="brief-section">
+      <h2>Connections</h2>
+      {relevant.map((edge) => (
+        <ConnectionRow key={edge.id} edge={edge} perspective={ticker} />
+      ))}
+      <p className="muted small">
+        Extracted from filings by the agent during Update filings; every edge's quote was verified verbatim
+        against the source before being shown.
+      </p>
+    </section>
+  );
+}
+
+const REL_LABELS: Record<GraphEdge["rel"], string> = {
+  supplier: "supplier",
+  customer: "customer",
+  partner: "partner",
+  competitor: "competitor",
+  investor: "investor",
+  subsidiary: "subsidiary",
+  other: "related",
+};
+
+function ConnectionRow({ edge, perspective }: { edge: GraphEdge; perspective: string }): JSX.Element {
+  const isFiler = edge.from === perspective;
+  return (
+    <div className="claim">
+      <p className="claim-text">
+        {isFiler ? (
+          <>
+            <Badge variant="neutral">{REL_LABELS[edge.rel]}</Badge> {edge.to}
+            {edge.toTicker ? ` (${edge.toTicker})` : ""}
+          </>
+        ) : (
+          <>
+            <Badge variant="neutral">{REL_LABELS[edge.rel]}</Badge> named by {edge.from} — {edge.to}
+          </>
+        )}
+      </p>
+      <blockquote className="claim-quote">
+        "{edge.quote}"
+        <button
+          className="citation-link"
+          title={edge.sourceUrl}
+          onClick={() => void window.api.openExternal(edge.sourceUrl)}
+        >
+          <Icon name="share-os" size={12} />
+          {edge.source}
+        </button>
+      </blockquote>
+    </div>
   );
 }

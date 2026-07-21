@@ -7,7 +7,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseAlerts, parsePlan, parseWatchlist, parseXray } from "@basis/schema";
+import { parseAlerts, parseGraph, parsePlan, parsePortfolio, parseWatchlist, parseXray } from "@basis/schema";
+import { relatedTickers } from "./lib/graph.mjs";
 import { readJsonMaybe, tsvCell } from "./lib/cli.mjs";
 import { ensureDataDir } from "./lib/data-dir.mjs";
 import {
@@ -82,6 +83,20 @@ async function main() {
   const known = new Set(alerts.alerts.map((a) => a.id));
   const cacheDir = edgarCacheDir(REPO_ROOT);
 
+  // Second-order inference inputs: the knowledge graph + the universe of
+  // tickers the user actually cares about (holdings + watchlist).
+  let graphEdges = [];
+  try {
+    graphEdges = parseGraph(readJsonMaybe(path.join(dir, "graph.json"))).edges;
+  } catch {
+    // no/invalid graph: alerts simply carry no relatedness
+  }
+  const portfolio = parsePortfolio(readJsonMaybe(path.join(dir, "portfolio.json")));
+  const universe = new Set([
+    ...portfolio.holdings.map((h) => h.ticker),
+    ...watchlist.entries.map((e) => e.ticker),
+  ]);
+
   let totalNew = 0;
   for (let i = 0; i < watchlist.entries.length; i++) {
     const entry = watchlist.entries[i];
@@ -119,6 +134,7 @@ async function main() {
           accession: filing.accession,
           title: `${entry.ticker} filed a ${filing.form}${filing.title && filing.title !== filing.form ? ` — ${filing.title}` : ""}`,
           url: filing.primaryDoc ? filingDocUrl(entry.cik, filing.accession, filing.primaryDoc) : undefined,
+          related: relatedTickers(graphEdges, entry.ticker, universe),
           read: false,
         });
         known.add(filing.accession);
@@ -132,6 +148,12 @@ async function main() {
           );
           if (prior) await cacheFiling(entry.cik, prior, cikDir);
         }
+      }
+      // Make sure the latest annual report is cached even when it isn't among
+      // the fresh filings — diff baselines and the knowledge graph need it.
+      const annual = recentFilings(submissions, { forms: ["10-K", "20-F"], limit: 1 })[0];
+      if (annual && !fresh.some((f) => f.accession === annual.accession)) {
+        await cacheFiling(entry.cik, annual, cikDir);
       }
       if (filings[0]) entry.lastSeenAccession = filings[0].accession;
       entry.lastCheckedAt = new Date().toISOString();

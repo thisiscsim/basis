@@ -528,6 +528,24 @@
   text-overflow: ellipsis;
 }
 
+.alert-related {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--foreground-accent);
+}
+
+.alert-related-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--foreground-primary);
+}
+
 .alert-date {
   flex: none;
   font-size: 11px;

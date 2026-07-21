@@ -56,6 +56,7 @@ export function App(): JSX.Element {
               digest: res.digest ?? null,
               briefs: res.briefs ?? [],
               ideas: res.ideas ?? { version: 1, ideas: [] },
+              graph: res.graph ?? { version: 1, edges: [] },
               paper: res.paper ?? {
                 version: 1,
                 startCash: 100_000,

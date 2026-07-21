@@ -3,6 +3,7 @@ import type {
   Alerts,
   Brief,
   Digest,
+  Graph,
   Ideas,
   Ips,
   PaperAccount,
@@ -85,6 +86,7 @@ export interface AppData {
   digest: Digest | null;
   briefs: BriefSummary[];
   ideas: Ideas;
+  graph: Graph;
   paper: PaperAccount;
   plan: Plan;
   backtests: BacktestSummary[];

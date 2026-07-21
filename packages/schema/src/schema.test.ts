@@ -10,6 +10,7 @@ import {
   parseBrief,
   parseDigest,
   parseBacktest,
+  parseGraph,
   parseIdeas,
   parseIps,
   parseMeta,
@@ -120,6 +121,52 @@ describe("defaults-filling parsers tolerate empty/partial input", () => {
     ).toThrow();
     expect(parsePlan({}).rebalanceBandPct).toBe(5);
     expect(() => parsePlan({ dca: { amount: 100, dayOfMonth: 31 } })).toThrow();
+  });
+
+  it("graph edges require verified-style citations and https URLs", () => {
+    const edge = {
+      id: "AAPL|supplier|corning",
+      from: "AAPL",
+      to: "Corning Inc.",
+      rel: "supplier",
+      quote: "Corning supplies glass for our devices.",
+      source: "10-K filed 2025-10-31",
+      sourceUrl: "https://www.sec.gov/Archives/x.htm",
+    };
+    const g = parseGraph({ edges: [edge] });
+    expect(g.edges[0].verified).toBe(false); // defaults false until the script verifies
+    expect(() => parseGraph({ edges: [{ ...edge, sourceUrl: "http://insecure" }] })).toThrow();
+    expect(() => parseGraph({ edges: [{ ...edge, rel: "owns-the-moon" }] })).toThrow();
+    expect(() => parseGraph({ edges: [{ ...edge, from: "../etc" }] })).toThrow();
+  });
+
+  it("alert related entries are validated and capped", () => {
+    const a = parseAlerts({
+      alerts: [
+        {
+          id: "x",
+          ticker: "MJRN",
+          form: "8-K",
+          filedAt: "2026-07-20",
+          accession: "0000000000-26-000001",
+          related: [{ ticker: "BFLY", path: "MJRN lists Butterfly Network as a supplier" }],
+        },
+      ],
+    });
+    expect(a.alerts[0].related[0].ticker).toBe("BFLY");
+    expect(() =>
+      parseAlerts({
+        alerts: [
+          {
+            id: "x",
+            ticker: "MJRN",
+            form: "8-K",
+            filedAt: "2026-07-20",
+            related: [{ ticker: "../E", path: "p" }],
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("plan alerts parse without ticker/accession; filings still validate", () => {

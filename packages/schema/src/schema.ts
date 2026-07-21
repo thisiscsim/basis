@@ -189,6 +189,14 @@ export const AlertSchema = z.object({
   url: HttpsUrlSchema.optional(),
   /** LLM diff summary ("what changed vs the prior filing"), when available. */
   summary: z.string().max(8000).optional(),
+  /**
+   * Second-order inference from the knowledge graph: holdings/watchlist
+   * tickers connected to the filer, with the quote-backed path.
+   */
+  related: z
+    .array(z.object({ ticker: TickerSchema, path: z.string().min(1).max(256) }))
+    .max(5)
+    .default([]),
   read: z.boolean().default(false),
 });
 
@@ -379,6 +387,46 @@ export const PaperAccountSchema = z.object({
     .default([]),
   /** SPY close on the first mark, for the benchmark line. */
   benchmarkStartPrice: bounded(1e9).optional(),
+});
+
+// ---- Knowledge graph (Phase 5) ----
+
+export const GraphRelSchema = z.enum([
+  "supplier",
+  "customer",
+  "partner",
+  "competitor",
+  "investor",
+  "subsidiary",
+  "other",
+]);
+
+/**
+ * One extracted relationship. Same citation discipline as briefs: `quote`
+ * must be a verbatim excerpt of the cited filing — graph-llm.mjs verifies it
+ * and drops unverified edges before anything reaches disk.
+ */
+export const GraphEdgeSchema = z.object({
+  id: z.string().min(1).max(160),
+  /** The filer whose filing asserted this relationship. */
+  from: TickerSchema,
+  /** Counterparty company name as written in the filing (may be private). */
+  to: z.string().min(1).max(256),
+  /** Counterparty's ticker when the filing/model could identify it. */
+  toTicker: TickerSchema.optional(),
+  rel: GraphRelSchema,
+  quote: z.string().min(1).max(1500),
+  source: z.string().min(1).max(256),
+  sourceUrl: HttpsUrlSchema,
+  accession: AccessionSchema.optional(),
+  verified: z.boolean().default(false),
+  extractedAt: z.string().max(64).optional(),
+});
+
+/** graph.json — the relationship knowledge graph across watched companies. */
+export const GraphSchema = z.object({
+  version: z.literal(1).default(1),
+  edges: z.array(GraphEdgeSchema).max(1000).default([]),
 });
 
 /** plan.json — the no-execution "boring bots": reminders only. */
