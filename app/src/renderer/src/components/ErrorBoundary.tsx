@@ -20,7 +20,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("Aperture render error:", error, info.componentStack);
+    console.error("Basis render error:", error, info.componentStack);
     // Persist to the main log file so a blank-screen crash leaves a trace the
     // user can send us, not just a message in a closed DevTools console.
     void window.api?.logRenderer("error", `render crash: ${error.stack || error.message}`);

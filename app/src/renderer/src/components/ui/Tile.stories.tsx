@@ -58,7 +58,7 @@ export const Project: Story = {
 
 export const EmptyProject: Story = {
   args: {
-    media: <TileThumb src={null} emptyLabel="No clips yet" />,
+    media: <TileThumb src={null} emptyLabel="No data yet" />,
     title: "Untitled project",
     meta: "0.0s ⋅ just now",
     actions: actionsMenu,
@@ -101,8 +101,8 @@ export const NewProject: Story = {
   // Showcases the sibling NewTile component; Tile args are unused.
   args: { media: null, title: "", onOpen: () => {} },
   render: () => (
-    <NewTile icon="clapboard-wide" onClick={() => {}}>
-      New project
+    <NewTile icon="plus-large" onClick={() => {}}>
+      New workspace
     </NewTile>
   ),
 };

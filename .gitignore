@@ -4,19 +4,18 @@ dist/
 .DS_Store
 *.log
 
-# User data lives in ~/Documents/Aperture (configurable), never in the repo.
-# Any local projects/ or styles/ (e.g. from a dev APERTURE_HOME override) are ignored.
-# The tracked sample project lives in fixtures/sample-project instead.
-# NOTE: root-anchored — an unanchored "styles/" also matched
-# app/src/renderer/src/styles/ and silently kept the design system untracked.
+# User data lives in ~/Documents/Basis (configurable), never in the repo.
+# Any local workspaces/ or .cache/ (e.g. from a dev BASIS_HOME override) are
+# ignored. NOTE: root-anchored on purpose — an unanchored pattern would also
+# match nested source directories.
+/workspaces/
+/.cache/
+# Legacy local data from the video-studio era (still on dev machines).
 /projects/
 /styles/
 
 .env
 .env.local
-
-# whisper.cpp + model, fetched on first transcription (dev fallback location).
-.whisper/
 
 # Storybook (WIP tooling).
 storybook-static/

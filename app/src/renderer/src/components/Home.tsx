@@ -1,11 +1,9 @@
-import { type DragEvent, useCallback, useEffect, useRef, useState } from "react";
-import { useEditor } from "../store";
-import { addAssets } from "../lib/edl-edit";
+import { useCallback, useEffect, useState } from "react";
+import { useApp } from "../store";
 import { buildTiles, relativeTime, SORT_LABELS, type HomeSort } from "../lib/home";
 import { SettingsButton } from "./SettingsModal";
 import {
   AlbumCover,
-  AlbumCoverCell,
   Button,
   Field,
   Icon,
@@ -16,19 +14,16 @@ import {
   MenuSub,
   Modal,
   NewTile,
-  TextArea,
   Tile,
-  TileThumb,
 } from "./ui";
-import type { AlbumSummary, ProjectSummary } from "../../../preload";
+import type { AlbumSummary, WorkspaceSummary } from "../../../preload";
 
 const SORTS: HomeSort[] = ["newest", "oldest", "az", "za"];
 
 export function Home(): JSX.Element {
-  const projects = useEditor((s) => s.projects);
-  const setProjects = useEditor((s) => s.setProjects);
-  const openProject = useEditor((s) => s.openProject);
-  const enterProject = useEditor((s) => s.enterProject);
+  const workspaces = useApp((s) => s.workspaces);
+  const setWorkspaces = useApp((s) => s.setWorkspaces);
+  const openWorkspace = useApp((s) => s.openWorkspace);
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -36,74 +31,47 @@ export function Home(): JSX.Element {
   const [sort, setSort] = useState<HomeSort>("newest");
   const [query, setQuery] = useState("");
   const [openAlbumId, setOpenAlbumId] = useState<string | null>(null);
-  /** Slug of the project awaiting a new album name (naming dialog open). */
+  /** Slug of the workspace awaiting a new folder name (naming dialog open). */
   const [namingFor, setNamingFor] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     window.api
-      ?.listProjects()
-      .then((list) => setProjects(list))
-      .catch(() => setProjects([]))
+      ?.listWorkspaces()
+      .then((list) => setWorkspaces(list))
+      .catch(() => setWorkspaces([]))
       .finally(() => setLoading(false));
     window.api
       ?.listAlbums()
       .then(setAlbums)
       .catch(() => {});
-  }, [setProjects]);
+  }, [setWorkspaces]);
 
   useEffect(refresh, [refresh]);
 
   const openAlbum = openAlbumId ? (albums.find((a) => a.id === openAlbumId) ?? null) : null;
-  const tiles = buildTiles({ projects, albums, tab, openAlbumId, sort, query });
-
-  // Seamless navigation: load the project while Home is still showing and
-  // switch views only once the data is in the store — no empty-editor flash.
-  // If the disk read is genuinely slow (>250ms), fall back to the classic
-  // switch-then-load path so the user still gets a loading state.
-  const openSeamlessly = useCallback(
-    async (slug: string) => {
-      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 250));
-      try {
-        const first = await Promise.race([window.api.loadProject(slug), timeout]);
-        if (first?.ok && first.edl) {
-          enterProject({
-            edl: first.edl,
-            slug: first.slug,
-            dir: first.dir,
-            promptText: first.promptText,
-            meta: first.meta,
-          });
-          return;
-        }
-      } catch {
-        // fall through to the classic path, which surfaces the load error
-      }
-      openProject(slug);
-    },
-    [enterProject, openProject],
-  );
+  const tiles = buildTiles({ workspaces, albums, tab, openAlbumId, sort, query });
 
   return (
     <div className="home">
       <header className="home-header">
         <div className="brand">
-          <Icon name="aperture-logomark" size={20} />
-          <span className="home-wordmark">Aperture</span>
+          <Icon name="basis-logomark" size={20} />
+          <span className="home-wordmark">Basis</span>
         </div>
         <div className="home-header-actions">
           <SettingsButton />
-          <Button variant="primary" size="sm" icon="clapboard-wide" onClick={() => setCreating(true)}>
-            New project
+          <Button variant="primary" size="sm" icon="plus-large" onClick={() => setCreating(true)}>
+            New workspace
           </Button>
         </div>
       </header>
 
       <main className="home-content">
         <div className="home-hero">
-          <h1>Welcome to Aperture</h1>
+          <h1>Welcome to Basis</h1>
           <p>
-            Drop in your clips, describe in natural language, let our creative agent assemble a first cut,
-            refine to your needs and export to your socials.
+            Your investing copilot: watch companies' SEC filings, generate cited research briefs, x-ray your
+            real exposure, and let a coach hold you to your own rules.
           </p>
         </div>
 
@@ -128,7 +96,7 @@ export function Home(): JSX.Element {
                 className={`home-tab ${tab === "albums" ? "active" : ""}`}
                 onClick={() => setTab("albums")}
               >
-                Albums
+                Folders
               </button>
             </div>
           )}
@@ -145,21 +113,21 @@ export function Home(): JSX.Element {
         </div>
 
         {loading ? (
-          <p className="home-loading">Loading projects…</p>
+          <p className="home-loading">Loading workspaces…</p>
         ) : tiles.length === 0 && tab === "albums" && !openAlbum && query.trim() === "" ? (
-          <p className="home-empty">No albums yet</p>
+          <p className="home-empty">No folders yet</p>
         ) : (
           <div className="tile-grid">
             {tiles.map((tile) =>
-              tile.kind === "project" ? (
-                <ProjectTile
-                  key={tile.project.slug}
-                  project={tile.project}
+              tile.kind === "workspace" ? (
+                <WorkspaceTile
+                  key={tile.workspace.slug}
+                  workspace={tile.workspace}
                   albums={albums}
                   inAlbum={Boolean(openAlbumId)}
-                  onOpen={() => void openSeamlessly(tile.project.slug)}
+                  onOpen={() => openWorkspace(tile.workspace.slug)}
                   onChanged={refresh}
-                  onNewAlbum={() => setNamingFor(tile.project.slug)}
+                  onNewAlbum={() => setNamingFor(tile.workspace.slug)}
                 />
               ) : (
                 <AlbumTile
@@ -173,8 +141,8 @@ export function Home(): JSX.Element {
               ),
             )}
             {!openAlbum && tab === "all" && (
-              <NewTile icon="clapboard-wide" onClick={() => setCreating(true)}>
-                New project
+              <NewTile icon="plus-large" onClick={() => setCreating(true)}>
+                New workspace
               </NewTile>
             )}
           </div>
@@ -182,12 +150,12 @@ export function Home(): JSX.Element {
       </main>
 
       {creating && (
-        <NewProjectModal
+        <NewWorkspaceModal
           onClose={() => setCreating(false)}
           onCreated={(slug) => {
             setCreating(false);
             refresh();
-            openProject(slug);
+            openWorkspace(slug);
           }}
         />
       )}
@@ -199,7 +167,7 @@ export function Home(): JSX.Element {
             setNamingFor(null);
             const res = await window.api.createAlbum(name);
             if (res.ok && res.id && slug) {
-              await window.api.setProjectAlbum(slug, res.id);
+              await window.api.setWorkspaceAlbum(slug, res.id);
               refresh();
             }
           }}
@@ -209,7 +177,7 @@ export function Home(): JSX.Element {
   );
 }
 
-/** Name-an-album dialog — creating an album is always an explicit, named act. */
+/** Name-a-folder dialog — creating a folder is always an explicit, named act. */
 function NewAlbumDialog({
   onClose,
   onCreate,
@@ -226,7 +194,7 @@ function NewAlbumDialog({
 
   return (
     <Modal
-      title="New album"
+      title="New folder"
       onClose={onClose}
       footer={
         <>
@@ -234,7 +202,7 @@ function NewAlbumDialog({
             Cancel
           </Button>
           <Button variant="primary" onClick={create} disabled={!name.trim()}>
-            Create album
+            Create folder
           </Button>
         </>
       }
@@ -243,7 +211,7 @@ function NewAlbumDialog({
         <Input
           autoFocus
           value={name}
-          placeholder="e.g. New York City"
+          placeholder="e.g. Retirement accounts"
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && create()}
         />
@@ -252,7 +220,7 @@ function NewAlbumDialog({
   );
 }
 
-/** Rename dialog shared by projects and albums — same specs as the creation dialogs. */
+/** Rename dialog shared by workspaces and folders. */
 function RenameDialog({
   title,
   label,
@@ -325,47 +293,50 @@ function SortMenu({ sort, onChange }: { sort: HomeSort; onChange: (s: HomeSort) 
 
 /* ---------------- tiles ---------------- */
 
-function useThumb(slug: string): string | null {
-  const [thumb, setThumb] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    window.api
-      ?.projectThumbnail(slug)
-      .then((url) => alive && setThumb(url))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [slug]);
-  return thumb;
+/** Text stat block in place of a media thumbnail — workspaces have no imagery. */
+function WorkspaceCover({ workspace }: { workspace: WorkspaceSummary }): JSX.Element {
+  return (
+    <div className="tile-thumb">
+      <div className="ws-cover">
+        <span className="ws-cover-stat">
+          <strong>{workspace.holdings}</strong> holding{workspace.holdings === 1 ? "" : "s"}
+        </span>
+        <span className="ws-cover-stat">
+          <strong>{workspace.watching}</strong> watching
+        </span>
+        {workspace.unreadAlerts > 0 && (
+          <span className="ws-cover-stat alert">
+            <strong>{workspace.unreadAlerts}</strong> new alert{workspace.unreadAlerts === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
-function ProjectTile({
-  project,
+function WorkspaceTile({
+  workspace,
   albums,
   inAlbum,
   onOpen,
   onChanged,
   onNewAlbum,
 }: {
-  project: ProjectSummary;
+  workspace: WorkspaceSummary;
   albums: AlbumSummary[];
   inAlbum: boolean;
   onOpen: () => void;
   onChanged: () => void;
   onNewAlbum: () => void;
 }): JSX.Element {
-  const thumb = useThumb(project.slug);
   const [renaming, setRenaming] = useState(false);
 
-  const meta = [`${project.durationSec.toFixed(1)}s`, relativeTime(project.updatedAt)]
-    .filter(Boolean)
-    .join(" ⋅ ");
+  const meta = [relativeTime(workspace.updatedAt)].filter(Boolean).join(" ⋅ ");
 
   return (
     <Tile
-      media={<TileThumb src={thumb} emptyLabel="No clips yet" />}
-      title={project.title}
+      media={<WorkspaceCover workspace={workspace} />}
+      title={workspace.title}
       meta={meta}
       onOpen={onOpen}
       actions={
@@ -377,102 +348,78 @@ function ProjectTile({
               icon="ellipsis"
               size={12}
               className={`tile-menu-btn ${open ? "open" : ""}`}
-              label={`Options for ${project.title}`}
+              label={`Options for ${workspace.title}`}
               onClick={toggle}
             />
           )}
         >
-          <MenuSub icon="move-folder" label="Move to album">
+          <MenuSub icon="move-folder" label="Move to folder">
             <MenuItem icon="plus-large" onSelect={onNewAlbum}>
-              New album
+              New folder
             </MenuItem>
             {albums.map((a) => (
-              <AlbumMenuItem
+              <MenuItem
                 key={a.id}
-                album={a}
-                onPick={async () => {
-                  await window.api.setProjectAlbum(project.slug, a.id);
+                onSelect={async () => {
+                  await window.api.setWorkspaceAlbum(workspace.slug, a.id);
                   onChanged();
                 }}
-              />
+              >
+                {a.name}
+              </MenuItem>
             ))}
           </MenuSub>
           <MenuItem icon="input-form" onSelect={() => setRenaming(true)}>
-            Rename project
+            Rename workspace
           </MenuItem>
           {inAlbum && (
             <MenuItem
               icon="move-folder"
               onSelect={async () => {
-                await window.api.setProjectAlbum(project.slug, null);
+                await window.api.setWorkspaceAlbum(workspace.slug, null);
                 onChanged();
               }}
             >
-              Remove from album
+              Remove from folder
             </MenuItem>
           )}
           <MenuItem
             icon="trash-can"
             danger
             onSelect={async () => {
-              if (!window.confirm(`Delete "${project.title}"? This permanently removes the project folder.`))
+              if (
+                !window.confirm(`Delete "${workspace.title}"? This permanently removes the workspace folder.`)
+              )
                 return;
-              const res = await window.api.deleteProject(project.slug);
+              const res = await window.api.deleteWorkspace(workspace.slug);
               if (res.ok) onChanged();
               else
-                useEditor
+                useApp
                   .getState()
-                  .pushNotice("error", `Couldn't delete project: ${res.error ?? "unknown error"}`);
+                  .pushNotice("error", `Couldn't delete workspace: ${res.error ?? "unknown error"}`);
             }}
           >
-            Delete project
+            Delete workspace
           </MenuItem>
         </Menu>
       }
     >
       {renaming && (
         <RenameDialog
-          title="Rename project"
+          title="Rename workspace"
           label="Title"
-          initial={project.title}
+          initial={workspace.title}
           onClose={() => setRenaming(false)}
           onSave={async (title) => {
             setRenaming(false);
-            if (title !== project.title) {
-              await window.api.saveMeta(project.slug, { title });
+            if (title !== workspace.title) {
+              await window.api.saveMeta(workspace.slug, { title });
               onChanged();
             }
           }}
         />
       )}
     </Tile>
-  );
-}
-
-/** Album row in the move-to submenu: leading cover thumbnail + name. */
-function AlbumMenuItem({
-  album,
-  onPick,
-}: {
-  album: AlbumSummary;
-  onPick: () => void | Promise<void>;
-}): JSX.Element {
-  const projects = useEditor((s) => s.projects);
-  const first = projects.find((p) => p.albumId === album.id);
-  const thumb = useThumb(first?.slug ?? "");
-  return (
-    <MenuItem
-      leading={
-        first && thumb ? (
-          <img className="menu-item-thumb" src={thumb} alt="" />
-        ) : (
-          <span className="menu-item-thumb menu-item-thumb-empty" />
-        )
-      }
-      onSelect={onPick}
-    >
-      {album.name}
-    </MenuItem>
   );
 }
 
@@ -484,7 +431,7 @@ function AlbumTile({
   onChanged,
 }: {
   album: AlbumSummary;
-  members: ProjectSummary[];
+  members: WorkspaceSummary[];
   updatedAt?: string;
   onOpen: () => void;
   onChanged: () => void;
@@ -500,7 +447,9 @@ function AlbumTile({
       media={
         <AlbumCover
           cells={members.slice(0, 4).map((m) => (
-            <MemberCoverCell key={m.slug} slug={m.slug} />
+            <span key={m.slug} className="album-cover-cell ws-cover-cell">
+              {m.title.slice(0, 2).toUpperCase()}
+            </span>
           ))}
         />
       }
@@ -522,30 +471,32 @@ function AlbumTile({
           )}
         >
           <MenuItem icon="input-form" onSelect={() => setRenaming(true)}>
-            Rename album
+            Rename folder
           </MenuItem>
           <MenuItem
             icon="trash-can"
             danger
             onSelect={async () => {
-              if (!window.confirm(`Delete the album "${album.name}"? Its projects are kept and ungrouped.`))
+              if (
+                !window.confirm(`Delete the folder "${album.name}"? Its workspaces are kept and ungrouped.`)
+              )
                 return;
               const res = await window.api.deleteAlbum(album.id);
               if (res.ok) onChanged();
               else
-                useEditor
+                useApp
                   .getState()
-                  .pushNotice("error", `Couldn't delete album: ${res.error ?? "unknown error"}`);
+                  .pushNotice("error", `Couldn't delete folder: ${res.error ?? "unknown error"}`);
             }}
           >
-            Delete album
+            Delete folder
           </MenuItem>
         </Menu>
       }
     >
       {renaming && (
         <RenameDialog
-          title="Rename album"
+          title="Rename folder"
           label="Name"
           initial={album.name}
           onClose={() => setRenaming(false)}
@@ -562,18 +513,7 @@ function AlbumTile({
   );
 }
 
-/** Kit cover cell fed by the project's fetched thumbnail. */
-function MemberCoverCell({ slug }: { slug: string }): JSX.Element {
-  const thumb = useThumb(slug);
-  return <AlbumCoverCell src={thumb} />;
-}
-
-interface StagedFile {
-  path: string;
-  name: string;
-}
-
-function NewProjectModal({
+function NewWorkspaceModal({
   onClose,
   onCreated,
 }: {
@@ -581,81 +521,43 @@ function NewProjectModal({
   onCreated: (slug: string) => void;
 }): JSX.Element {
   const [title, setTitle] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [files, setFiles] = useState<StagedFile[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [tickers, setTickers] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
-
-  const stage = (list: FileList | File[]) => {
-    // Snapshot synchronously: a FileList is LIVE, and the caller resets the
-    // input right after this call — by the time React runs a deferred state
-    // updater the list would already be empty.
-    const picked: StagedFile[] = [];
-    for (const f of Array.from(list)) {
-      try {
-        const path = window.api.getPathForFile(f);
-        if (path) picked.push({ path, name: f.name });
-      } catch {
-        // not a disk-backed file; skip
-      }
-    }
-    if (picked.length === 0) return;
-    setFiles((prev) => {
-      const next = [...prev];
-      for (const p of picked) {
-        if (!next.some((s) => s.path === p.path)) next.push(p);
-      }
-      return next;
-    });
-  };
 
   const create = async () => {
     if (!title.trim() || busy) return;
-    setBusy("Creating project…");
+    setBusy(true);
     setError(null);
     try {
-      const res = await window.api.createProject({ title, prompt });
+      const list = tickers
+        .split(/[\s,]+/)
+        .map((t) => t.toUpperCase().trim())
+        .filter(Boolean);
+      const res = await window.api.createWorkspace({ title, tickers: list });
       if (!res.ok || !res.slug) {
-        setError(res.error ?? "Could not create project");
+        setError(res.error ?? "Could not create workspace");
         return;
-      }
-      // Import the staged clips and register them in the fresh project's EDL
-      // so the editor opens with everything already in place.
-      if (files.length > 0) {
-        setBusy(`Importing ${files.length} clip${files.length === 1 ? "" : "s"}…`);
-        const imp = await window.api.importAssets(
-          res.slug,
-          files.map((f) => f.path),
-        );
-        if (imp.ok && imp.assets.length > 0) {
-          const proj = await window.api.loadProject(res.slug);
-          if (proj.ok && proj.edl) {
-            addAssets(proj.edl, imp.assets);
-            await window.api.saveEdl(res.slug, proj.edl);
-          }
-        }
       }
       onCreated(res.slug);
     } catch (err) {
       setError(String(err));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
   return (
     <Modal
-      title="New project"
+      title="New workspace"
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} disabled={!!busy}>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={create} disabled={!!busy || !title.trim()}>
-            {busy ?? "Create"}
+          <Button variant="primary" onClick={() => void create()} disabled={busy || !title.trim()}>
+            {busy ? "Creating…" : "Create"}
           </Button>
         </>
       }
@@ -664,73 +566,17 @@ function NewProjectModal({
         <Input
           autoFocus
           value={title}
-          placeholder="e.g. Day in the life of startup engineer"
+          placeholder="e.g. My long-term portfolio"
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && create()}
+          onKeyDown={(e) => e.key === "Enter" && void create()}
         />
       </Field>
-      <Field label="Clips">
-        <div
-          className={`upload-area ${dragOver ? "drag" : ""}`}
-          style={{ height: 96 }}
-          onClick={() => fileInput.current?.click()}
-          onDragOver={(e: DragEvent<HTMLDivElement>) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e: DragEvent<HTMLDivElement>) => {
-            e.preventDefault();
-            setDragOver(false);
-            if (e.dataTransfer.files.length) stage(e.dataTransfer.files);
-          }}
-        >
-          <span className="upload-title">
-            <Icon name="arrow-out-of-box" size={16} />
-            Upload clips
-          </span>
-          <span className="upload-sub">Drag and drop files here or click to upload</span>
-          <span className="upload-formats">MP4, MOV, HEIC, WebM, JPEGs, PNGs</span>
-        </div>
-        <input
-          ref={fileInput}
-          type="file"
-          accept="video/*,image/*"
-          multiple
-          hidden
-          onChange={(e) => {
-            if (e.target.files) stage(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        {files.length > 0 && (
-          <div className="clip-list clip-list-capped" style={{ marginTop: 6 }}>
-            {files.map((f) => (
-              <div key={f.path} className="clip-row" title={f.path}>
-                <Icon name="multi-media" size={14} />
-                <span className="name">{f.name}</span>
-                <button
-                  className="clip-row-remove"
-                  title="Remove"
-                  aria-label={`Remove ${f.name}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFiles((prev) => prev.filter((s) => s.path !== f.path));
-                  }}
-                >
-                  <Icon name="trash-can" size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Field>
-      <Field label="What do you want to make?">
-        <TextArea
-          rows={4}
-          value={prompt}
-          placeholder="Describe the vibe, beats, hook, length, and any music or captions you want."
-          onChange={(e) => setPrompt(e.target.value)}
+      <Field label="Watchlist tickers (optional)">
+        <Input
+          value={tickers}
+          placeholder="AAPL, MSFT, BFLY"
+          onChange={(e) => setTickers(e.target.value.toUpperCase())}
+          onKeyDown={(e) => e.key === "Enter" && void create()}
         />
       </Field>
       {error && <p className="ui-form-error">{error}</p>}

@@ -1,0 +1,27 @@
+---
+description: Workspace schema package rules (validation boundary, bounds, rebuild)
+globs: packages/schema/**
+alwaysApply: false
+---
+
+# Workspace schemas (packages/schema)
+
+The schemas are a **security boundary**: workspace files are a shareable interchange format and LLMs author them. Every field must stay hostile-input-safe.
+
+- Numerics: `.finite()` + explicit bounds. Unbounded values poison downstream math (JSON `1e400` parses to `Infinity`).
+- URLs (`sourceUrl`, alert `url`, source lists): `HttpsUrlSchema` — these render as clickable links and reach `shell.openExternal`; https only.
+- Identifiers: `TickerSchema` / `CikSchema` / `AccessionSchema` regexes — they flow into filenames, EDGAR URLs, and prompts.
+- Strings and arrays get max lengths/sizes. New collection fields need caps too.
+
+## Parse-helper strategy (keep it)
+- App-owned files (meta, portfolio, ips, watchlist, alerts, xray): defaults-filling throwing parsers — old/partial files keep parsing.
+- LLM-authored documents (brief, digest): `ParseResult` with path-prefixed errors, designed to be fed back to the model for the one repair retry.
+
+## Change protocol
+1. Add the field with a **default** (old files must keep parsing) and mirror the type in `types.ts` exports.
+2. `npm run build:schema` after every schema change — the app and scripts import from `dist/`.
+3. Renderer must tolerate files parsed by an older schema (a stale main process across HMR): nullish-fallback new fields at the use site.
+4. Add hostile-input coverage to `schema.test.ts` for anything new (reject Infinity/traversal/oversize/non-https, accept the sane case).
+
+## llm-config
+`llm-config.ts` is the single source of truth for provider/model/key resolution, shared by the main process and `app/scripts/llm.mjs`. Never accept a cross-provider key fallback (an Anthropic key must never be sent to api.openai.com). Keep this module free of `@types/node` and of any side effects — the renderer bundles it transitively.

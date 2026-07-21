@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
-import { assertSlug, assetKindFor, isSafeExternalUrl, mimeFor, safePath, slugify } from "./paths";
+import { assertSlug, isSafeExternalUrl, safePath, slugify } from "./paths";
 
 // safePath is the core containment control for renderer-supplied slugs/ids;
 // these lock in the traversal + sibling-prefix guarantees.
 describe("safePath", () => {
-  const root = "/home/user/Aperture/projects";
+  const root = "/home/user/Basis/workspaces";
 
   it("allows the root itself and legit children", () => {
     expect(safePath(root, [])).toBe(root);
-    expect(safePath(root, ["demo", "edl.json"])).toBe(join(root, "demo/edl.json"));
+    expect(safePath(root, ["demo", "portfolio.json"])).toBe(join(root, "demo/portfolio.json"));
   });
 
   it("rejects .. traversal out of the root", () => {
@@ -19,7 +19,7 @@ describe("safePath", () => {
 
   it("rejects a sibling directory that merely shares the root prefix", () => {
     // "<root>-evil" starts with the root string but is not inside it.
-    expect(() => safePath(root, ["../projects-evil"])).toThrow();
+    expect(() => safePath(root, ["../workspaces-evil"])).toThrow();
   });
 
   it("contains an absolute-looking segment under the root (join treats it as relative)", () => {
@@ -31,8 +31,8 @@ describe("safePath", () => {
 
 describe("assertSlug", () => {
   it("accepts sane slugs", () => {
-    expect(() => assertSlug("my-project")).not.toThrow();
-    expect(() => assertSlug("Clip_01")).not.toThrow();
+    expect(() => assertSlug("my-workspace")).not.toThrow();
+    expect(() => assertSlug("Fund_01")).not.toThrow();
   });
 
   it("rejects traversal, separators, empties, and overlong ids", () => {
@@ -53,23 +53,10 @@ describe("isSafeExternalUrl", () => {
   });
 });
 
-describe("assetKindFor / mimeFor / slugify", () => {
-  it("classifies by extension", () => {
-    expect(assetKindFor("a.MP4")).toBe("video");
-    expect(assetKindFor("a.wav")).toBe("audio");
-    expect(assetKindFor("a.png")).toBe("image");
-    expect(assetKindFor("a.txt")).toBeNull();
-  });
-
-  it("maps mime types with an octet-stream fallback", () => {
-    expect(mimeFor("clip.mp4")).toBe("video/mp4");
-    expect(mimeFor("a.jpeg")).toBe("image/jpeg");
-    expect(mimeFor("a.bin")).toBe("application/octet-stream");
-  });
-
-  it("slugifies titles and falls back to 'project'", () => {
-    expect(slugify("My Great Video!")).toBe("my-great-video");
-    expect(slugify("   ")).toBe("project");
-    expect(slugify("!!!")).toBe("project");
+describe("slugify", () => {
+  it("slugifies titles and falls back to 'workspace'", () => {
+    expect(slugify("My Retirement Fund!")).toBe("my-retirement-fund");
+    expect(slugify("   ")).toBe("workspace");
+    expect(slugify("!!!")).toBe("workspace");
   });
 });

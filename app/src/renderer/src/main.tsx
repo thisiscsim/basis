@@ -2,11 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { useEditor } from "./store";
+import { useApp } from "./store";
 import "./styles/tokens.css";
 import "./styles/fonts.css";
 import "./styles/ui.css";
-import "./styles/editor.css";
+import "./styles/workspace.css";
 import "./styles.css";
 
 // Global handlers for errors the React error boundary can't see (event
@@ -19,7 +19,7 @@ window.addEventListener("error", (e) => {
 window.addEventListener("unhandledrejection", (e) => {
   const reason = e.reason instanceof Error ? (e.reason.stack ?? e.reason.message) : String(e.reason);
   void window.api?.logRenderer("error", `unhandledrejection: ${reason}`);
-  useEditor.getState().pushNotice("error", `Something failed: ${reason}`.slice(0, 300));
+  useApp.getState().pushNotice("error", `Something failed: ${reason}`.slice(0, 300));
 });
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

@@ -1,3 +1,3 @@
-# Aperture — Claude Code
+# Basis — Claude Code
 
 > Shared project rules live in `AGENTS.md`.

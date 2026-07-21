@@ -1,194 +1,119 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseEdl } from "@reel/edl";
-import { _dropPendingSave, useEditor } from "./store";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useApp, type WorkspaceData } from "./store";
 
-const edl = parseEdl({ tracks: [{ id: "v", type: "video", clips: [] }] }).edl!;
+function seedWorkspace(): WorkspaceData {
+  return {
+    slug: "demo",
+    dir: "/tmp/demo",
+    meta: null,
+    portfolio: { version: 1, currency: "USD", holdings: [] },
+    ips: { version: 1, goals: "", targetAllocation: [], rules: [] },
+    watchlist: { version: 1, entries: [] },
+    alerts: { version: 1, alerts: [] },
+    xray: null,
+    digest: null,
+    briefs: [],
+  };
+}
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  _dropPendingSave();
-  useEditor.setState({ view: "home", slug: null, edl: null, dirty: false, saveError: null, notices: [] });
-});
-afterEach(() => {
-  vi.useRealTimers();
-});
-
-describe("view routing", () => {
-  it("openProject enters the editor; goHome returns home", () => {
-    useEditor.getState().openProject("demo");
-    expect(useEditor.getState()).toMatchObject({ view: "editor", slug: "demo" });
-    useEditor.getState().goHome();
-    expect(useEditor.getState().view).toBe("home");
-  });
-
-  it("enterProject switches view with data loaded and editor state reset", () => {
-    useEditor.setState({
-      selectedClipId: "x",
-      currentFrame: 42,
-      edlPast: [edl],
-      rightTab: "critique",
-    });
-    useEditor.getState().enterProject({ edl, slug: "demo", promptText: "hi" });
-    expect(useEditor.getState()).toMatchObject({
-      view: "editor",
-      slug: "demo",
-      promptText: "hi",
-      selectedClipId: null,
-      currentFrame: 0,
-      rightTab: "inspector",
-    });
-    expect(useEditor.getState().edl).toBe(edl);
-    expect(useEditor.getState().edlPast).toHaveLength(0);
+  useApp.setState({
+    view: "home",
+    slug: null,
+    ws: null,
+    chat: [],
+    chatStreaming: false,
+    notices: [],
+    jobs: {
+      brief: { running: false, phase: "", progress: 0 },
+      xray: { running: false, phase: "", progress: 0 },
+      monitor: { running: false, phase: "", progress: 0 },
+      digest: { running: false, phase: "", progress: 0 },
+    },
   });
 });
 
-describe("theme", () => {
-  it("toggleTheme flips the theme, sets the DOM attribute, and persists", () => {
-    useEditor.setState({ theme: "dark" });
-    useEditor.getState().toggleTheme();
-    expect(useEditor.getState().theme).toBe("light");
-    expect(document.documentElement.dataset.theme).toBe("light");
-    expect(localStorage.getItem("aperture:theme")).toBe("light");
+describe("navigation", () => {
+  it("openWorkspace resets per-workspace state", () => {
+    useApp.setState({ chat: [{ role: "user", content: "hi" }], tab: "coach" });
+    useApp.getState().openWorkspace("demo");
+    const s = useApp.getState();
+    expect(s.view).toBe("workspace");
+    expect(s.slug).toBe("demo");
+    expect(s.ws).toBeNull();
+    expect(s.chat).toEqual([]);
+    expect(s.tab).toBe("digest");
+  });
+
+  it("goHome clears the loaded workspace", () => {
+    useApp.getState().openWorkspace("demo");
+    useApp.getState().setWorkspaceData(seedWorkspace());
+    useApp.getState().goHome();
+    const s = useApp.getState();
+    expect(s.view).toBe("home");
+    expect(s.ws).toBeNull();
   });
 });
 
-describe("edl history", () => {
-  it("undo/redo walk the edit stack and persist each step", () => {
-    vi.useFakeTimers();
-    useEditor.setState({ edl, slug: "demo", edlPast: [], edlFuture: [] });
-    const s = () => useEditor.getState();
-
-    s().updateEdl((d) => (d.theme.fontFamily = "First"));
-    s().updateEdl((d) => (d.theme.fontFamily = "Second"));
-    expect(s().edl?.theme.fontFamily).toBe("Second");
-    expect(s().edlPast).toHaveLength(2);
-
-    s().undoEdl();
-    expect(s().edl?.theme.fontFamily).toBe("First");
-    s().undoEdl();
-    expect(s().edl?.theme.fontFamily).toBe(edl.theme.fontFamily);
-    expect(s().edlPast).toHaveLength(0);
-    expect(s().edlFuture).toHaveLength(2);
-
-    s().redoEdl();
-    expect(s().edl?.theme.fontFamily).toBe("First");
-    vi.advanceTimersByTime(400);
-    expect(window.api.saveEdl).toHaveBeenCalled();
+describe("document saves", () => {
+  it("savePortfolio updates state optimistically and persists via the bridge", async () => {
+    useApp.getState().openWorkspace("demo");
+    useApp.getState().setWorkspaceData(seedWorkspace());
+    const doc = { version: 1 as const, currency: "USD", holdings: [{ ticker: "AAPL" }] };
+    await useApp.getState().savePortfolio(doc);
+    expect(useApp.getState().ws?.portfolio.holdings).toHaveLength(1);
+    expect(window.api.savePortfolio).toHaveBeenCalledWith("demo", doc);
   });
 
-  it("a new edit clears the redo stack; external load resets history", () => {
-    useEditor.setState({ edl, slug: "demo", edlPast: [], edlFuture: [] });
-    const s = () => useEditor.getState();
-    s().updateEdl((d) => (d.theme.fontFamily = "A"));
-    s().undoEdl();
-    expect(s().edlFuture).toHaveLength(1);
-    s().updateEdl((d) => (d.theme.fontFamily = "B"));
-    expect(s().edlFuture).toHaveLength(0);
-
-    s().setProject({ edl, slug: "demo" });
-    expect(s().edlPast).toHaveLength(0);
-    expect(s().edlFuture).toHaveLength(0);
+  it("a failed save surfaces an error notice", async () => {
+    useApp.getState().openWorkspace("demo");
+    useApp.getState().setWorkspaceData(seedWorkspace());
+    vi.mocked(window.api.saveIps).mockResolvedValueOnce({ ok: false, error: "disk full" });
+    await useApp.getState().saveIps({ version: 1, goals: "", targetAllocation: [], rules: [] });
+    const notices = useApp.getState().notices;
+    expect(notices.some((n) => n.kind === "error" && n.text.includes("disk full"))).toBe(true);
   });
 });
 
-describe("panel layout", () => {
-  it("clamps panel sizes to their limits and persists them", () => {
-    const s = () => useEditor.getState();
-    s().setPanelSize("left", 10_000);
-    expect(s().panelSizes.left).toBe(440);
-    s().setPanelSize("timeline", 10);
-    expect(s().panelSizes.timeline).toBe(160);
-    expect(JSON.parse(localStorage.getItem("aperture:panel-layout")!)).toMatchObject({
-      left: 440,
-      timeline: 160,
-    });
+describe("chat streaming", () => {
+  it("appendChatDelta starts and grows a pending assistant message", () => {
+    const s = useApp.getState();
+    s.appendChat({ role: "user", content: "hello" });
+    s.appendChatDelta("Hi ");
+    s.appendChatDelta("there");
+    const chat = useApp.getState().chat;
+    expect(chat).toHaveLength(2);
+    expect(chat[1]).toMatchObject({ role: "assistant", content: "Hi there", pending: true });
   });
 
-  it("togglePanels flips focus mode", () => {
-    const s = () => useEditor.getState();
-    const before = s().panelsHidden;
-    s().togglePanels();
-    expect(s().panelsHidden).toBe(!before);
-    s().togglePanels();
-    expect(s().panelsHidden).toBe(before);
+  it("finishChatMessage replaces the pending message with the final text", () => {
+    const s = useApp.getState();
+    s.appendChatDelta("partial");
+    s.setChatStreaming(true);
+    useApp.getState().finishChatMessage("final answer");
+    const state = useApp.getState();
+    expect(state.chat[state.chat.length - 1]).toEqual({ role: "assistant", content: "final answer" });
+    expect(state.chatStreaming).toBe(false);
   });
 });
 
-describe("autosave", () => {
-  it("debounces a save to disk after updateEdl", () => {
-    vi.useFakeTimers();
-    useEditor.setState({ edl, slug: "demo" });
-    useEditor.getState().updateEdl((d) => (d.theme.fontFamily = "Inter"));
-    expect(window.api.saveEdl).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(400);
-    expect(window.api.saveEdl).toHaveBeenCalledTimes(1);
-    expect(window.api.saveEdl).toHaveBeenCalledWith(
-      "demo",
-      expect.objectContaining({ theme: expect.any(Object) }),
-    );
+describe("notices", () => {
+  it("caps the queue at 5 so an error loop can't grow it unbounded", () => {
+    for (let i = 0; i < 8; i++) useApp.getState().pushNotice("info", `n${i}`);
+    const notices = useApp.getState().notices;
+    expect(notices).toHaveLength(5);
+    expect(notices[0].text).toBe("n3");
   });
+});
 
-  it("does not save when there is no slug", () => {
-    vi.useFakeTimers();
-    useEditor.setState({ edl, slug: null });
-    useEditor.getState().updateEdl((d) => (d.theme.fontFamily = "Mono"));
-    vi.advanceTimersByTime(400);
-    expect(window.api.saveEdl).not.toHaveBeenCalled();
-  });
-
-  it("flushes the pending save when switching projects (no lost edit)", () => {
-    vi.useFakeTimers();
-    useEditor.setState({ edl, slug: "demo", view: "editor" });
-    useEditor.getState().updateEdl((d) => (d.theme.fontFamily = "Edited"));
-    // Switch before the 400 ms debounce fires: the edit must be written, not dropped.
-    useEditor.getState().openProject("other");
-    expect(window.api.saveEdl).toHaveBeenCalledTimes(1);
-    expect(window.api.saveEdl).toHaveBeenCalledWith(
-      "demo",
-      expect.objectContaining({ theme: expect.objectContaining({ fontFamily: "Edited" }) }),
-    );
-  });
-
-  it("goHome flushes the pending save", () => {
-    vi.useFakeTimers();
-    useEditor.setState({ edl, slug: "demo", view: "editor" });
-    useEditor.getState().updateEdl((d) => (d.theme.fontFamily = "Edited"));
-    useEditor.getState().goHome();
-    expect(window.api.saveEdl).toHaveBeenCalledTimes(1);
-  });
-
-  it("drops the pending save when an external reload replaces the same project", () => {
-    vi.useFakeTimers();
-    useEditor.setState({ edl, slug: "demo", view: "editor" });
-    useEditor.getState().updateEdl((d) => (d.theme.fontFamily = "Stale"));
-    // Agent wrote edl.json; the watcher reload lands before the debounce fires.
-    // The stale save must NOT overwrite the newer file.
-    useEditor.getState().setProject({ edl, slug: "demo" });
-    vi.advanceTimersByTime(1000);
-    expect(window.api.saveEdl).not.toHaveBeenCalled();
-    expect(useEditor.getState().dirty).toBe(false);
-  });
-
-  it("a failed save keeps the dirty flag and surfaces a persistent error", async () => {
-    vi.useFakeTimers();
-    vi.mocked(window.api.saveEdl).mockResolvedValueOnce({ ok: false, error: "disk full" });
-    useEditor.setState({ edl, slug: "demo", view: "editor" });
-    useEditor.getState().updateEdl((d) => (d.theme.fontFamily = "Unsaved"));
-    expect(useEditor.getState().dirty).toBe(true);
-    await vi.advanceTimersByTimeAsync(400);
-    expect(useEditor.getState().dirty).toBe(true);
-    expect(useEditor.getState().saveError).toBe("disk full");
-    const ns = useEditor.getState().notices;
-    expect(ns[ns.length - 1]?.kind).toBe("error");
-  });
-
-  it("a successful save clears the dirty flag", async () => {
-    vi.useFakeTimers();
-    vi.mocked(window.api.saveEdl).mockResolvedValueOnce({ ok: true });
-    useEditor.setState({ edl, slug: "demo", view: "editor" });
-    useEditor.getState().updateEdl((d) => (d.theme.fontFamily = "Saved"));
-    await vi.advanceTimersByTimeAsync(400);
-    expect(useEditor.getState().dirty).toBe(false);
-    expect(useEditor.getState().saveError).toBeNull();
+describe("jobs", () => {
+  it("tracks phase/progress and resets on finish", () => {
+    const s = useApp.getState();
+    s.startJob("monitor");
+    s.setJobPhase("monitor", "checking AAPL");
+    s.setJobProgress("monitor", 40);
+    expect(useApp.getState().jobs.monitor).toEqual({ running: true, phase: "checking AAPL", progress: 40 });
+    useApp.getState().finishJob("monitor");
+    expect(useApp.getState().jobs.monitor.running).toBe(false);
   });
 });

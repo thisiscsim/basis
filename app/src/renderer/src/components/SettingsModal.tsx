@@ -1,43 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useEditor } from "../store";
-import { Button, Icon, IconButton } from "./ui";
+import { useEffect, useState } from "react";
+import { useApp } from "../store";
+import { Button, IconButton } from "./ui";
 import { useEscapeKey } from "./ui/useEscapeKey";
-import { Divider, modelLabel, SettingRow, SettingSelect, Toggle } from "./settings/controls";
-import type { AppSettings, PublicSettings, VoiceSummary } from "../../../preload";
+import { Divider, modelLabel, SettingRow, SettingSelect } from "./settings/controls";
+import type { AppSettings, PublicSettings } from "../../../preload";
 
-type SettingsTab = "general" | "export" | "agent" | "voices";
+type SettingsTab = "general" | "agent" | "data";
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
-  { id: "export", label: "Export Settings" },
   { id: "agent", label: "Agent Preferences" },
-  { id: "voices", label: "Voices" },
+  { id: "data", label: "Data Sources" },
 ];
 
 const MODELS = ["gpt-5.5", "gpt-5.5-mini", "claude-fable-5", "claude-sonnet-5"];
 
 const DEFAULTS: PublicSettings = {
-  hwDecode: false,
-  hwEncode: false,
-  exportFps: "project",
-  exportResolution: "project",
-  exportCompression: "social",
   agentModel: "gpt-5.5",
   reasoningEffort: "low",
   hasAgentKey: false,
-  hasElevenLabsKey: false,
 };
 
-/** Settings dialog (Figma 14:1597 / 17:652 / 17:1812). */
 export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
-  const theme = useEditor((s) => s.theme);
-  const setTheme = useEditor((s) => s.setTheme);
+  const theme = useApp((s) => s.theme);
+  const setTheme = useApp((s) => s.setTheme);
   const [tab, setTab] = useState<SettingsTab>("general");
   const [settings, setSettings] = useState<PublicSettings>(DEFAULTS);
-  const [projectsDir, setProjectsDir] = useState<string>("");
+  const [workspacesDir, setWorkspacesDir] = useState<string>("");
   const [locks, setLocks] = useState({ modelLocked: false, keyLocked: false });
   const [keyDraft, setKeyDraft] = useState("");
   const [keySaved, setKeySaved] = useState(false);
+  const [contactDraft, setContactDraft] = useState<string | null>(null);
 
   useEscapeKey(onClose);
 
@@ -47,11 +40,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
       .then(setSettings)
       .catch(() => {});
     window.api
-      ?.getProjectsDir()
-      .then(setProjectsDir)
+      ?.getWorkspacesDir()
+      .then(setWorkspacesDir)
       .catch(() => {});
     window.api
-      ?.generateMode()
+      ?.llmInfo()
       .then((m) => setLocks({ modelLocked: m.modelLocked, keyLocked: m.keyLocked }))
       .catch(() => {});
   }, []);
@@ -59,10 +52,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
   const update = async (patch: Partial<AppSettings>) => {
     const next = await window.api.setSettings(patch);
     setSettings(next);
-  };
-
-  const changeFolder = async () => {
-    await window.api.pickProjectsDir();
   };
 
   const connectKey = async () => {
@@ -102,69 +91,14 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
               </SettingRow>
               <Divider />
               <SettingRow
-                title="Hardware-accelerated playback"
-                sub="Use GPU to decode video in the editor. Restart required"
-              >
-                <Toggle on={settings.hwDecode} onChange={(v) => void update({ hwDecode: v })} />
-              </SettingRow>
-              <Divider />
-              <SettingRow
-                title="Hardware-accelerated export"
-                sub="Use GPU encoder when rendering the final MP4"
-              >
-                <Toggle on={settings.hwEncode} onChange={(v) => void update({ hwEncode: v })} />
-              </SettingRow>
-              <Divider />
-              <SettingRow
-                title="Save all projects to"
-                sub={projectsDir || "…"}
+                title="Save all workspaces to"
+                sub={workspacesDir || "…"}
                 subTitle="Click to reveal in Finder"
-                onSubClick={() => void window.api.revealProjectsDir()}
+                onSubClick={() => void window.api.revealWorkspacesDir()}
               >
-                <button className="settings-select-btn" onClick={changeFolder}>
+                <button className="settings-select-btn" onClick={() => void window.api.pickWorkspacesDir()}>
                   Change directory
                 </button>
-              </SettingRow>
-            </>
-          )}
-
-          {tab === "export" && (
-            <>
-              <SettingRow title="Frame rate" sub="Output frame rate for the exported video">
-                <SettingSelect
-                  value={settings.exportFps}
-                  onChange={(v) => void update({ exportFps: v as AppSettings["exportFps"] })}
-                  options={[
-                    { value: "project", label: "Project" },
-                    { value: "24", label: "24 FPS" },
-                    { value: "30", label: "30 FPS" },
-                    { value: "60", label: "60 FPS" },
-                  ]}
-                />
-              </SettingRow>
-              <Divider />
-              <SettingRow title="Resolution" sub="Rendered size; Project keeps the format set in the editor">
-                <SettingSelect
-                  value={settings.exportResolution}
-                  onChange={(v) => void update({ exportResolution: v as AppSettings["exportResolution"] })}
-                  options={[
-                    { value: "project", label: "Project" },
-                    { value: "1080", label: "1080p" },
-                    { value: "720", label: "720p" },
-                  ]}
-                />
-              </SettingRow>
-              <Divider />
-              <SettingRow title="Compression" sub="Trade file size against visual quality">
-                <SettingSelect
-                  value={settings.exportCompression}
-                  onChange={(v) => void update({ exportCompression: v as AppSettings["exportCompression"] })}
-                  options={[
-                    { value: "social", label: "Social Media" },
-                    { value: "high", label: "High Quality" },
-                    { value: "max", label: "Smallest File" },
-                  ]}
-                />
               </SettingRow>
             </>
           )}
@@ -175,8 +109,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
                 title="Model"
                 sub={
                   locks.modelLocked
-                    ? "Pinned by APERTURE_LLM_MODEL in .env.local"
-                    : "Model used for generation, critique and auto-improve"
+                    ? "Pinned by BASIS_LLM_MODEL in .env.local"
+                    : "Model used for briefs, digests, chat, and the friction gate"
                 }
               >
                 <SettingSelect
@@ -225,7 +159,42 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
             </>
           )}
 
-          {tab === "voices" && <VoicesTab settings={settings} update={update} />}
+          {tab === "data" && (
+            <>
+              <SettingRow
+                title="SEC EDGAR contact"
+                sub="EDGAR's fair-access policy asks for a contact email in the request User-Agent. Free; no account needed."
+              >
+                <span />
+              </SettingRow>
+              <div className="settings-key-row">
+                <input
+                  className="settings-key-input"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={contactDraft ?? settings.edgarContact ?? ""}
+                  onChange={(e) => setContactDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && contactDraft !== null) {
+                      void update({ edgarContact: contactDraft.trim() || undefined });
+                      setContactDraft(null);
+                    }
+                  }}
+                />
+                <button
+                  className="settings-select-btn"
+                  disabled={contactDraft === null}
+                  onClick={() => {
+                    if (contactDraft === null) return;
+                    void update({ edgarContact: contactDraft.trim() || undefined });
+                    setContactDraft(null);
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="settings-footer">
@@ -238,282 +207,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
   );
 }
 
-/**
- * Voices tab: ElevenLabs key, the account's voice list (default-voice picker,
- * delete for cloned ones), and an in-app Instant Voice Clone flow — record a
- * mic sample and/or upload files, with an explicit consent gate.
- */
-function VoicesTab({
-  settings,
-  update,
-}: {
-  settings: PublicSettings;
-  update: (patch: Partial<AppSettings>) => Promise<void>;
-}): JSX.Element {
-  const [status, setStatus] = useState({ configured: false, keyLocked: false });
-  const [voices, setVoices] = useState<VoiceSummary[]>([]);
-  const [voicesError, setVoicesError] = useState<string | null>(null);
-  const [keyDraft, setKeyDraft] = useState("");
-  const [cloneName, setCloneName] = useState("");
-  const [samplePaths, setSamplePaths] = useState<string[]>([]);
-  const [recording, setRecording] = useState<{ name: string; data: Uint8Array } | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [consent, setConsent] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [cloneError, setCloneError] = useState<string | null>(null);
-  const sampleInput = useRef<HTMLInputElement>(null);
-  const recorder = useRef<MediaRecorder | null>(null);
-  const micStream = useRef<MediaStream | null>(null);
-  const chunks = useRef<Blob[]>([]);
-
-  const refresh = useCallback(() => {
-    window.api
-      ?.voicesStatus()
-      .then(setStatus)
-      .catch(() => {});
-    window.api
-      ?.listVoices()
-      .then((r) => {
-        setVoices(r.voices);
-        setVoicesError(r.ok ? null : (r.error ?? null));
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(refresh, [refresh]);
-
-  const connectKey = async () => {
-    if (!keyDraft.trim()) return;
-    await update({ elevenLabsApiKey: keyDraft.trim() });
-    setKeyDraft("");
-    refresh();
-  };
-
-  // Closing the Settings modal while recording must release the mic and the
-  // MediaRecorder instead of leaking them.
-  useEffect(() => {
-    return () => {
-      recorder.current?.stop();
-      micStream.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
-
-  const toggleRecord = async () => {
-    if (isRecording) {
-      recorder.current?.stop();
-      recorder.current = null;
-      setIsRecording(false);
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStream.current = stream;
-      const mr = new MediaRecorder(stream);
-      chunks.current = [];
-      mr.ondataavailable = (e) => e.data.size > 0 && chunks.current.push(e.data);
-      mr.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        micStream.current = null;
-        const blob = new Blob(chunks.current, { type: "audio/webm" });
-        setRecording({ name: `sample-${Date.now()}.webm`, data: new Uint8Array(await blob.arrayBuffer()) });
-      };
-      mr.start();
-      recorder.current = mr;
-      setIsRecording(true);
-    } catch {
-      setCloneError("Microphone unavailable.");
-    }
-  };
-
-  const stageSamples = (files: FileList) => {
-    const next = [...samplePaths];
-    for (const f of Array.from(files)) {
-      try {
-        const p = window.api.getPathForFile(f);
-        if (p && !next.includes(p)) next.push(p);
-      } catch {
-        // skip
-      }
-    }
-    setSamplePaths(next);
-  };
-
-  const createVoice = async () => {
-    if (busy) return;
-    setBusy("Cloning voice…");
-    setCloneError(null);
-    try {
-      const res = await window.api.cloneVoice({
-        name: cloneName,
-        paths: samplePaths,
-        recording: recording ?? undefined,
-        consent,
-      });
-      if (res.ok && res.voiceId) {
-        setCloneName("");
-        setSamplePaths([]);
-        setRecording(null);
-        setConsent(false);
-        await update({ defaultVoiceId: res.voiceId });
-        refresh();
-      } else {
-        setCloneError(res.error ?? "Cloning failed.");
-      }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <>
-      <div className="settings-key-row">
-        <input
-          className="settings-key-input"
-          type="password"
-          placeholder={
-            status.keyLocked
-              ? "API key configured via .env.local"
-              : status.configured
-                ? "Key saved — enter a new key to replace it"
-                : "Enter your ElevenLabs API Key"
-          }
-          value={keyDraft}
-          disabled={status.keyLocked}
-          onChange={(e) => setKeyDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void connectKey()}
-        />
-        <button
-          className="settings-select-btn"
-          onClick={() => void connectKey()}
-          disabled={status.keyLocked || !keyDraft.trim()}
-        >
-          Connect
-        </button>
-      </div>
-
-      {status.configured && (
-        <>
-          <SettingRow title="Narration voice" sub="Default voice for generated voiceovers">
-            <SettingSelect
-              value={settings.defaultVoiceId ?? ""}
-              onChange={(v) => void update({ defaultVoiceId: v || undefined })}
-              options={[
-                { value: "", label: "Pick a voice" },
-                ...voices.map((v) => ({
-                  value: v.id,
-                  label: `${v.name}${v.category === "cloned" ? " (cloned)" : ""}`,
-                })),
-              ]}
-            />
-          </SettingRow>
-          {voicesError && <p className="settings-row-sub">{voicesError}</p>}
-          {voices.filter((v) => v.category === "cloned").length > 0 && (
-            <div className="clip-list clip-list-capped">
-              {voices
-                .filter((v) => v.category === "cloned")
-                .map((v) => (
-                  <div key={v.id} className="clip-row" title={v.id}>
-                    <Icon name="voice-high" size={14} />
-                    <span className="name">{v.name}</span>
-                    <button
-                      className="clip-row-remove"
-                      title="Delete this cloned voice from your ElevenLabs account"
-                      aria-label={`Delete ${v.name}`}
-                      onClick={async () => {
-                        await window.api.deleteVoice(v.id);
-                        refresh();
-                      }}
-                    >
-                      <Icon name="trash-can" size={12} />
-                    </button>
-                  </div>
-                ))}
-            </div>
-          )}
-          <Divider />
-
-          <SettingRow
-            title="Clone a voice"
-            sub="1-5 minutes of clean speech. Requires a paid ElevenLabs plan."
-          >
-            <span />
-          </SettingRow>
-          <div className="settings-key-row">
-            <input
-              className="settings-key-input"
-              type="text"
-              placeholder="Voice name (e.g. Chris)"
-              value={cloneName}
-              onChange={(e) => setCloneName(e.target.value)}
-            />
-            <button className="settings-select-btn" onClick={() => void toggleRecord()}>
-              {isRecording ? "Stop" : recording ? "Re-record" : "Record"}
-            </button>
-            <button className="settings-select-btn" onClick={() => sampleInput.current?.click()}>
-              Upload
-            </button>
-          </div>
-          <input
-            ref={sampleInput}
-            type="file"
-            accept="audio/*"
-            multiple
-            hidden
-            onChange={(e) => {
-              if (e.target.files) stageSamples(e.target.files);
-              e.target.value = "";
-            }}
-          />
-          {(samplePaths.length > 0 || recording) && (
-            <div className="clip-list clip-list-capped">
-              {recording && (
-                <div className="clip-row">
-                  <Icon name="record" size={14} />
-                  <span className="name">Mic recording</span>
-                  <button
-                    className="clip-row-remove"
-                    aria-label="Remove recording"
-                    onClick={() => setRecording(null)}
-                  >
-                    <Icon name="trash-can" size={12} />
-                  </button>
-                </div>
-              )}
-              {samplePaths.map((p) => (
-                <div key={p} className="clip-row" title={p}>
-                  <Icon name="voice-high" size={14} />
-                  <span className="name">{p.split("/").pop()}</span>
-                  <button
-                    className="clip-row-remove"
-                    aria-label={`Remove ${p}`}
-                    onClick={() => setSamplePaths((prev) => prev.filter((x) => x !== p))}
-                  >
-                    <Icon name="trash-can" size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <label className="insp-check">
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />I have
-            the person&apos;s consent (or it&apos;s my own voice) and the rights to clone it.
-          </label>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => void createVoice()}
-            disabled={!!busy || !consent || !cloneName.trim() || (samplePaths.length === 0 && !recording)}
-          >
-            {busy ?? "Create voice"}
-          </Button>
-          {cloneError && <p className="settings-row-sub">{cloneError}</p>}
-        </>
-      )}
-    </>
-  );
-}
-
-/** Gear button + modal in one — drop it into any bar (Home, editor header). */
+/** Gear button + modal in one — drop it into any bar (Home, workspace header). */
 export function SettingsButton(): JSX.Element {
   const [open, setOpen] = useState(false);
   return (

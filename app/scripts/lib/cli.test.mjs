@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { round, sanitizeAssetId, tsvCell } from "./cli.mjs";
-
-describe("sanitizeAssetId", () => {
-  it("matches the app importer's id derivation (spaces -> dashes, ext dropped)", () => {
-    expect(sanitizeAssetId("my clip.mp4")).toBe("my-clip");
-    expect(sanitizeAssetId("Clip_01.MOV")).toBe("Clip_01");
-    expect(sanitizeAssetId("a (2).webm")).toBe("a-2-");
-    expect(sanitizeAssetId("émoji☺.mp4")).toBe("-moji-");
-  });
-});
+import { round, tsvCell } from "./cli.mjs";
 
 describe("tsvCell", () => {
   it("collapses tabs/newlines so a value can't shift TSV columns", () => {

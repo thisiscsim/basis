@@ -1,116 +1,93 @@
 import { describe, expect, it } from "vitest";
-import { buildTiles, matchesQuery, sortTiles, type HomeTile } from "./home";
-import type { AlbumSummary, ProjectSummary } from "../../../preload";
+import type { AlbumSummary, WorkspaceSummary } from "../../../preload";
+import { buildTiles, matchesQuery, relativeTime, sortTiles, type HomeTile } from "./home";
 
-const proj = (slug: string, title: string, updatedAt: string, albumId?: string): ProjectSummary => ({
+const ws = (slug: string, title: string, updatedAt?: string, albumId?: string): WorkspaceSummary => ({
   slug,
   title,
-  platform: "reels",
-  status: "draft",
-  durationSec: 10,
-  assetCount: 1,
+  status: "active",
+  holdings: 0,
+  watching: 0,
+  unreadAlerts: 0,
   updatedAt,
   albumId,
 });
 
 const album = (id: string, name: string, createdAt: string): AlbumSummary => ({ id, name, createdAt });
 
-const projects = [
-  proj("a", "Alpha", "2026-07-01T00:00:00Z"),
-  proj("b", "Bravo", "2026-07-03T00:00:00Z", "trip"),
-  proj("c", "Charlie", "2026-07-02T00:00:00Z", "trip"),
-];
-const albums = [album("trip", "Road Trip", "2026-06-30T00:00:00Z")];
-
 describe("matchesQuery", () => {
-  it("is case-insensitive and empty-query matches all", () => {
-    expect(matchesQuery("Napa Valley", "napa")).toBe(true);
-    expect(matchesQuery("Napa Valley", "  ")).toBe(true);
-    expect(matchesQuery("Napa Valley", "tokyo")).toBe(false);
+  it("is case-insensitive and matches everything on empty query", () => {
+    expect(matchesQuery("Retirement Fund", "retire")).toBe(true);
+    expect(matchesQuery("Retirement Fund", "")).toBe(true);
+    expect(matchesQuery("Retirement Fund", "crypto")).toBe(false);
   });
 });
 
 describe("sortTiles", () => {
-  const tiles: HomeTile[] = projects.map((project) => ({ kind: "project", project }));
-  it("newest / oldest sort by timestamp", () => {
-    expect(sortTiles(tiles, "newest").map((t) => (t.kind === "project" ? t.project.slug : ""))).toEqual([
-      "b",
-      "c",
-      "a",
-    ]);
-    expect(sortTiles(tiles, "oldest").map((t) => (t.kind === "project" ? t.project.slug : ""))).toEqual([
-      "a",
-      "c",
-      "b",
-    ]);
-  });
-  it("az / za sort by name", () => {
-    expect(sortTiles(tiles, "az")[0]).toMatchObject({ project: { title: "Alpha" } });
-    expect(sortTiles(tiles, "za")[0]).toMatchObject({ project: { title: "Charlie" } });
+  const tiles: HomeTile[] = [
+    { kind: "workspace", workspace: ws("a", "Alpha", "2026-01-01T00:00:00Z") },
+    { kind: "workspace", workspace: ws("z", "Zulu", "2026-06-01T00:00:00Z") },
+  ];
+
+  it("sorts by recency and by name", () => {
+    expect(sortTiles(tiles, "newest")[0].kind === "workspace" && "Zulu").toBe("Zulu");
+    const az = sortTiles(tiles, "az");
+    expect((az[0] as Extract<HomeTile, { kind: "workspace" }>).workspace.title).toBe("Alpha");
+    const za = sortTiles(tiles, "za");
+    expect((za[0] as Extract<HomeTile, { kind: "workspace" }>).workspace.title).toBe("Zulu");
   });
 });
 
 describe("buildTiles", () => {
-  it("All tab: ungrouped projects + one tile per album, sorted together", () => {
-    const tiles = buildTiles({ projects, albums, tab: "all", openAlbumId: null, sort: "newest", query: "" });
-    // Album carries its latest member activity (Jul 3) so it leads Alpha (Jul 1).
-    expect(tiles.map((t) => (t.kind === "album" ? `album:${t.album.id}` : t.project.slug))).toEqual([
-      "album:trip",
-      "a",
-    ]);
+  const workspaces = [
+    ws("solo", "Solo fund", "2026-07-01T00:00:00Z"),
+    ws("ira", "IRA", "2026-07-02T00:00:00Z", "family"),
+    ws("529", "College 529", "2026-07-03T00:00:00Z", "family"),
+    ws("ghost", "Orphan", "2026-07-04T00:00:00Z", "deleted-folder"),
+  ];
+  const albums = [album("family", "Family", "2026-06-01T00:00:00Z")];
+
+  it("All tab: ungrouped workspaces + one tile per folder; orphans are ungrouped", () => {
+    const tiles = buildTiles({ workspaces, albums, tab: "all", openAlbumId: null, sort: "az", query: "" });
+    const names = tiles.map((t) => (t.kind === "workspace" ? t.workspace.title : t.album.name));
+    expect(names).toContain("Solo fund");
+    expect(names).toContain("Family");
+    expect(names).toContain("Orphan");
+    expect(names).not.toContain("IRA"); // represented by its folder tile
   });
 
-  it("album tile aggregates members newest-first with latest-member timestamp", () => {
-    const [albumTile] = buildTiles({
-      projects,
+  it("folder drill-in lists only members and honors search", () => {
+    const tiles = buildTiles({
+      workspaces,
+      albums,
+      tab: "all",
+      openAlbumId: "family",
+      sort: "az",
+      query: "ira",
+    });
+    expect(tiles).toHaveLength(1);
+    expect((tiles[0] as Extract<HomeTile, { kind: "workspace" }>).workspace.slug).toBe("ira");
+  });
+
+  it("a folder's timestamp is its newest member activity", () => {
+    const tiles = buildTiles({
+      workspaces,
       albums,
       tab: "albums",
       openAlbumId: null,
       sort: "newest",
       query: "",
     });
-    if (albumTile.kind !== "album") throw new Error("expected album tile");
-    expect(albumTile.members.map((m) => m.slug)).toEqual(["b", "c"]);
-    expect(albumTile.updatedAt).toBe("2026-07-03T00:00:00Z");
+    const folder = tiles[0] as Extract<HomeTile, { kind: "album" }>;
+    expect(folder.updatedAt).toBe("2026-07-03T00:00:00Z");
   });
+});
 
-  it("drill-in lists only the album's members and respects search", () => {
-    const tiles = buildTiles({ projects, albums, tab: "all", openAlbumId: "trip", sort: "az", query: "" });
-    expect(tiles.map((t) => (t.kind === "project" ? t.project.slug : ""))).toEqual(["b", "c"]);
-    const filtered = buildTiles({
-      projects,
-      albums,
-      tab: "all",
-      openAlbumId: "trip",
-      sort: "az",
-      query: "brav",
-    });
-    expect(filtered).toHaveLength(1);
-  });
-
-  it("search matches album names on the top level", () => {
-    const tiles = buildTiles({
-      projects,
-      albums,
-      tab: "all",
-      openAlbumId: null,
-      sort: "newest",
-      query: "road",
-    });
-    expect(tiles).toHaveLength(1);
-    expect(tiles[0].kind).toBe("album");
-  });
-
-  it("projects pointing at a deleted album are treated as ungrouped", () => {
-    const orphan = [proj("d", "Delta", "2026-07-04T00:00:00Z", "gone")];
-    const tiles = buildTiles({
-      projects: orphan,
-      albums: [],
-      tab: "all",
-      openAlbumId: null,
-      sort: "newest",
-      query: "",
-    });
-    expect(tiles).toEqual([{ kind: "project", project: orphan[0] }]);
+describe("relativeTime", () => {
+  it("formats recent and old timestamps, null for garbage", () => {
+    expect(relativeTime(new Date(Date.now() - 30_000).toISOString())).toBe("just now");
+    expect(relativeTime(new Date(Date.now() - 2 * 3600_000).toISOString())).toBe("2 hours ago");
+    expect(relativeTime(undefined)).toBeNull();
+    expect(relativeTime("not a date")).toBeNull();
   });
 });

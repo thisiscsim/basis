@@ -3,31 +3,29 @@ import { vi } from "vitest";
 
 // A default window.api stub so renderer components/stores don't blow up on
 // window.api?.* calls. Functions are memoized per name so tests can assert on
-// stable references (e.g. expect(window.api.saveEdl).toHaveBeenCalled()).
-const ARRAY_RETURNING = new Set([
-  "listProjects",
-  "listBundledMusic",
-  "listReferences",
-  "listStyles",
-  "listBenchmarks",
-  "listAlbums",
-  "autoTuneResults",
-]);
+// stable references (e.g. expect(window.api.savePortfolio).toHaveBeenCalled()).
+const ARRAY_RETURNING = new Set(["listWorkspaces", "listAlbums", "listBriefs"]);
 const SUBSCRIPTIONS = new Set([
   "onProgress",
   "onPhase",
-  "onProjectChanged",
-  "onExportProgress",
-  "onExportPhase",
+  "onWorkspaceChanged",
+  "onChatDelta",
+  "onChatDone",
+  "onChatError",
 ]);
 
 function makeFn(prop: string) {
-  if (prop === "getPathForFile") return vi.fn(() => "");
   if (SUBSCRIPTIONS.has(prop)) return vi.fn(() => () => {});
-  if (prop === "generateMode")
-    return vi.fn(async () => ({ mode: "baseline", provider: "openai", model: "gpt-5.5" }));
-  if (prop === "loadMeta") return vi.fn(async () => ({}));
+  if (prop === "llmInfo")
+    return vi.fn(async () => ({
+      provider: "openai",
+      model: "gpt-5.5",
+      configured: false,
+      modelLocked: false,
+      keyLocked: false,
+    }));
   if (ARRAY_RETURNING.has(prop)) return vi.fn(async () => []);
+  if (prop.startsWith("save") || prop.startsWith("start")) return vi.fn(async () => ({ ok: true }));
   return vi.fn(async () => null);
 }
 
