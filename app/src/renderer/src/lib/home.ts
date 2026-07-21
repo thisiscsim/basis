@@ -1,4 +1,4 @@
-import type { AlbumSummary, ProjectSummary } from "../../../preload";
+import type { AlbumSummary, WorkspaceSummary } from "../../../preload";
 
 export type HomeSort = "newest" | "oldest" | "az" | "za";
 
@@ -9,10 +9,10 @@ export const SORT_LABELS: Record<HomeSort, string> = {
   za: "Name Z–A",
 };
 
-/** A grid tile: either a single project or an album of projects. */
+/** A grid tile: either a single workspace or a folder (album) of workspaces. */
 export type HomeTile =
-  | { kind: "project"; project: ProjectSummary }
-  | { kind: "album"; album: AlbumSummary; members: ProjectSummary[]; updatedAt?: string };
+  | { kind: "workspace"; workspace: WorkspaceSummary }
+  | { kind: "album"; album: AlbumSummary; members: WorkspaceSummary[]; updatedAt?: string };
 
 const time = (iso?: string) => (iso ? new Date(iso).getTime() : 0);
 
@@ -22,11 +22,11 @@ export function matchesQuery(title: string, query: string): boolean {
 }
 
 function tileName(tile: HomeTile): string {
-  return tile.kind === "project" ? tile.project.title : tile.album.name;
+  return tile.kind === "workspace" ? tile.workspace.title : tile.album.name;
 }
 
 function tileTime(tile: HomeTile): number {
-  return tile.kind === "project" ? time(tile.project.updatedAt) : time(tile.updatedAt);
+  return tile.kind === "workspace" ? time(tile.workspace.updatedAt) : time(tile.updatedAt);
 }
 
 export function sortTiles(tiles: HomeTile[], sort: HomeSort): HomeTile[] {
@@ -49,40 +49,39 @@ export function sortTiles(tiles: HomeTile[], sort: HomeSort): HomeTile[] {
 
 /**
  * Compose the grid for the current view.
- * - All tab: ungrouped projects + one tile per album (projects inside an album
- *   are represented by their album tile).
- * - Albums tab: album tiles only.
- * - Album drill-in: the album's member projects.
- * Search matches project titles / album names; sort applies to the result.
- * An album's timestamp is its latest member activity (or its creation time).
+ * - All tab: ungrouped workspaces + one tile per folder (workspaces inside a
+ *   folder are represented by their folder tile).
+ * - Folders tab: folder tiles only.
+ * - Folder drill-in: the folder's member workspaces.
+ * Search matches workspace titles / folder names; sort applies to the result.
+ * A folder's timestamp is its latest member activity (or its creation time).
  */
 export function buildTiles(input: {
-  projects: ProjectSummary[];
+  workspaces: WorkspaceSummary[];
   albums: AlbumSummary[];
   tab: "all" | "albums";
   openAlbumId: string | null;
   sort: HomeSort;
   query: string;
 }): HomeTile[] {
-  const { projects, albums, tab, openAlbumId, sort, query } = input;
+  const { workspaces, albums, tab, openAlbumId, sort, query } = input;
 
   if (openAlbumId) {
-    const members = projects.filter((p) => p.albumId === openAlbumId && matchesQuery(p.title, query));
+    const members = workspaces.filter((w) => w.albumId === openAlbumId && matchesQuery(w.title, query));
     return sortTiles(
-      members.map((project) => ({ kind: "project", project })),
+      members.map((workspace) => ({ kind: "workspace", workspace })),
       sort,
     );
   }
 
   const albumIds = new Set(albums.map((a) => a.id));
   const albumTiles: HomeTile[] = albums.map((album) => {
-    // Newest members first so the 2x2 cover shows the freshest thumbnails.
     const members = sortTiles(
-      projects
-        .filter((p) => p.albumId === album.id)
-        .map((project) => ({ kind: "project" as const, project })),
+      workspaces
+        .filter((w) => w.albumId === album.id)
+        .map((workspace) => ({ kind: "workspace" as const, workspace })),
       "newest",
-    ).map((t) => (t as Extract<HomeTile, { kind: "project" }>).project);
+    ).map((t) => (t as Extract<HomeTile, { kind: "workspace" }>).workspace);
     const updatedAt =
       members
         .map((m) => m.updatedAt)
@@ -96,10 +95,10 @@ export function buildTiles(input: {
     tab === "albums"
       ? albumTiles
       : [
-          ...projects
-            // Projects pointing at a deleted/unknown album are treated as ungrouped.
-            .filter((p) => !p.albumId || !albumIds.has(p.albumId))
-            .map((project) => ({ kind: "project" as const, project })),
+          ...workspaces
+            // Workspaces pointing at a deleted/unknown folder are treated as ungrouped.
+            .filter((w) => !w.albumId || !albumIds.has(w.albumId))
+            .map((workspace) => ({ kind: "workspace" as const, workspace })),
           ...albumTiles,
         ];
 

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import apertureLogomark from "../../assets/icons/aperture-logomark.svg?raw";
+import basisLogomark from "../../assets/icons/basis-logomark.svg?raw";
 import arrowLeft from "../../assets/icons/arrow-left.svg?raw";
 import arrowOutOfBox from "../../assets/icons/arrow-out-of-box.svg?raw";
 import arrowRotate from "../../assets/icons/arrow-rotate.svg?raw";
@@ -47,7 +47,7 @@ import volumeFull from "../../assets/icons/volume-full.svg?raw";
  * to `currentColor`, so icons tint via CSS `color` on the wrapper.
  */
 const ICONS = {
-  "aperture-logomark": apertureLogomark,
+  "basis-logomark": basisLogomark,
   "arrow-left": arrowLeft,
   "arrow-out-of-box": arrowOutOfBox,
   "arrow-rotate": arrowRotate,

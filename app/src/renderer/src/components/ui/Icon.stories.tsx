@@ -12,7 +12,7 @@ export default meta;
 
 // Keep in sync with the ICONS map in Icon.tsx.
 const ICON_NAMES = [
-  "aperture-logomark",
+  "basis-logomark",
   "arrow-left",
   "arrow-out-of-box",
   "arrow-rotate",

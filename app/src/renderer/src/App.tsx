@@ -1,72 +1,31 @@
 import { type CSSProperties, memo, useEffect } from "react";
-import { EditorHeader } from "./components/EditorHeader";
-import { LeftRail } from "./components/LeftRail";
-import { PreviewStage } from "./components/PreviewStage";
-import { RightPanel } from "./components/RightPanel";
-import { Timeline } from "./components/Timeline";
-import { ExportModal } from "./components/ExportModal";
+import { WorkspaceHeader } from "./components/WorkspaceHeader";
+import { WorkspaceRail } from "./components/WorkspaceRail";
+import { DigestView } from "./components/DigestView";
+import { ResearchView } from "./components/ResearchView";
+import { CoachView } from "./components/CoachView";
 import { Home } from "./components/Home";
-import { cancelPendingSave, useEditor, type Notice, type PanelId } from "./store";
+import { useApp, type Notice, type PanelId, type WorkspaceTab } from "./store";
 
-// The shell re-renders on panel resize, playback, notices, etc. These panels
-// take no props and subscribe to the store themselves, so memoizing them keeps
-// an App re-render (e.g. a per-pixel panel drag) from re-rendering all of them
-// — most importantly the Remotion Player subtree inside PreviewStage.
-const EditorHeaderM = memo(EditorHeader);
-const LeftRailM = memo(LeftRail);
-const PreviewStageM = memo(PreviewStage);
-const RightPanelM = memo(RightPanel);
-const TimelineM = memo(Timeline);
+// The shell re-renders on panel resize, notices, etc. These panels take no
+// props and subscribe to the store themselves, so memoizing them keeps an App
+// re-render (e.g. a per-pixel panel drag) from re-rendering all of them.
+const WorkspaceHeaderM = memo(WorkspaceHeader);
+const WorkspaceRailM = memo(WorkspaceRail);
 
 export function App(): JSX.Element {
-  const view = useEditor((s) => s.view);
-  const slug = useEditor((s) => s.slug);
-  // Only the presence of an EDL matters here (the boot overlay); subscribing to
-  // the whole object would re-render the shell on every keystroke.
-  const hasEdl = useEditor((s) => s.edl !== null);
-  const loadError = useEditor((s) => s.loadError);
-  const notices = useEditor((s) => s.notices);
-  const dismissNotice = useEditor((s) => s.dismissNotice);
-  const setProject = useEditor((s) => s.setProject);
-  const setLoadError = useEditor((s) => s.setLoadError);
-  const setReload = useEditor((s) => s.setReload);
-  const undoEdl = useEditor((s) => s.undoEdl);
-  const redoEdl = useEditor((s) => s.redoEdl);
-  const toggleTheme = useEditor((s) => s.toggleTheme);
-  const panelSizes = useEditor((s) => s.panelSizes);
-  const panelsHidden = useEditor((s) => s.panelsHidden);
-  const togglePanels = useEditor((s) => s.togglePanels);
-  const playerCtl = useEditor((s) => s.playerCtl);
-
-  // Space toggles playback anywhere in the editor outside a text field —
-  // including Cmd+\ focus mode, where the timeline (and its transport) is
-  // unmounted.
-  useEffect(() => {
-    if (view !== "editor") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code !== "Space") return;
-      const t = e.target as HTMLElement;
-      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)
-        return;
-      e.preventDefault();
-      playerCtl?.toggle();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [view, playerCtl]);
-
-  // Cmd+\ — focus mode: hide rails + timeline, keep only the canvas (Figma-style).
-  useEffect(() => {
-    if (view !== "editor") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "\\" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        togglePanels();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [view, togglePanels]);
+  const view = useApp((s) => s.view);
+  const slug = useApp((s) => s.slug);
+  const tab = useApp((s) => s.tab);
+  const hasData = useApp((s) => s.ws !== null);
+  const loadError = useApp((s) => s.loadError);
+  const notices = useApp((s) => s.notices);
+  const dismissNotice = useApp((s) => s.dismissNotice);
+  const setWorkspaceData = useApp((s) => s.setWorkspaceData);
+  const setLoadError = useApp((s) => s.setLoadError);
+  const setReload = useApp((s) => s.setReload);
+  const toggleTheme = useApp((s) => s.toggleTheme);
+  const panelSizes = useApp((s) => s.panelSizes);
 
   // 'T' toggles light/dark anywhere, unless the user is typing in a field.
   useEffect(() => {
@@ -81,102 +40,62 @@ export function App(): JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleTheme]);
 
-  // Cmd+Z / Shift+Cmd+Z for EDL history. Text fields keep their native undo.
+  // Load (and live-reload) the active workspace whenever we enter it. The
+  // watcher fires when the agent/engine scripts write workspace files, so the
+  // UI always reflects disk truth.
   useEffect(() => {
-    if (view !== "editor") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
-      const t = e.target as HTMLElement;
-      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
-      e.preventDefault();
-      if (e.shiftKey) redoEdl();
-      else undoEdl();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [view, undoEdl, redoEdl]);
+    if (view !== "workspace" || !slug) return;
 
-  // Load (and live-reload) the active project whenever we enter the editor.
-  useEffect(() => {
-    if (view !== "editor" || !slug) return;
-
-    // Returns the load promise so busy flows (Generate/Auto-improve) can keep
-    // their loading state up until the fresh cut is actually in the store.
     const load = () =>
       window.api
-        ?.loadProject(slug)
+        ?.loadWorkspace(slug)
         .then((res) => {
-          if (res.ok && res.edl) {
-            setProject({
-              edl: res.edl,
+          if (res.ok) {
+            setWorkspaceData({
               slug: res.slug,
-              dir: res.dir,
-              promptText: res.promptText,
-              meta: res.meta,
+              dir: res.dir ?? null,
+              meta: res.meta ?? null,
+              portfolio: res.portfolio ?? { version: 1, currency: "USD", holdings: [] },
+              ips: res.ips ?? { version: 1, goals: "", targetAllocation: [], rules: [] },
+              watchlist: res.watchlist ?? { version: 1, entries: [] },
+              alerts: res.alerts ?? { version: 1, alerts: [] },
+              xray: res.xray ?? null,
+              digest: res.digest ?? null,
+              briefs: res.briefs ?? [],
             });
           } else {
-            setLoadError((res.errors ?? ["unknown error"]).join("; "));
+            setLoadError(res.error ?? "unknown error");
           }
         })
         .catch((err) => setLoadError(String(err)));
     setReload(load);
-    // Home may have preloaded the project for a seamless view switch
-    // (enterProject) — skip the redundant initial read in that case.
-    const s = useEditor.getState();
-    if (!(s.edl && s.slug === slug)) void load();
+    void load();
 
-    void window.api?.watchProject(slug);
-    const off = window.api?.onProjectChanged((changed) => {
+    void window.api?.watchWorkspace(slug);
+    const off = window.api?.onWorkspaceChanged((changed) => {
       if (changed !== slug) return;
-      // Drop any in-flight autosave immediately — before the async reload
-      // lands — so it can't overwrite the newer file the agent just wrote.
-      cancelPendingSave(slug);
-      load();
+      void load();
     });
     return () => off?.();
-  }, [view, slug, setProject, setLoadError, setReload]);
+  }, [view, slug, setWorkspaceData, setLoadError, setReload]);
 
   return (
     <>
       {view === "home" ? (
         <Home />
       ) : (
-        <div
-          className={`editor-shell ${panelsHidden ? "panels-hidden" : ""}`}
-          style={
-            {
-              "--left-rail-w": `${panelSizes.left}px`,
-              "--right-panel-w": `${panelSizes.right}px`,
-              "--tl-h": `${panelSizes.timeline}px`,
-            } as CSSProperties
-          }
-        >
-          <EditorHeaderM />
-          <div className="editor-main">
-            {!panelsHidden && (
-              <>
-                <LeftRailM />
-                <PanelResizer panel="left" />
-              </>
-            )}
-            <PreviewStageM />
-            {!panelsHidden && (
-              <>
-                <PanelResizer panel="right" />
-                <RightPanelM />
-              </>
-            )}
+        <div className="ws-shell" style={{ "--left-rail-w": `${panelSizes.left}px` } as CSSProperties}>
+          <WorkspaceHeaderM />
+          <div className="ws-main">
+            <WorkspaceRailM />
+            <PanelResizer panel="left" />
+            <main className="ws-content">
+              <TabBody tab={tab} />
+            </main>
           </div>
-          {!panelsHidden && (
-            <>
-              <PanelResizer panel="timeline" />
-              <TimelineM />
-            </>
-          )}
-          <ExportModal />
-          {!hasEdl && (
+          {!hasData && (
             <div className="boot">
-              {loadError ? `Could not load project: ${loadError}` : "Loading project…"}
+              {loadError ? `Could not load workspace: ${loadError}` : "Loading workspace…"}
             </div>
           )}
         </div>
@@ -192,26 +111,38 @@ export function App(): JSX.Element {
   );
 }
 
+function TabBody({ tab }: { tab: WorkspaceTab }): JSX.Element {
+  switch (tab) {
+    case "digest":
+      return <DigestView />;
+    case "research":
+      return <ResearchView />;
+    case "coach":
+      return <CoachView />;
+    default: {
+      const exhaustive: never = tab;
+      return exhaustive;
+    }
+  }
+}
+
 /**
- * Slim drag handle between panels. Left/right resize widths, timeline resizes
- * height; all are clamped in the store (PANEL_LIMITS) and persisted.
+ * Slim drag handle between the rail and the content; clamped in the store
+ * (PANEL_LIMITS) and persisted to localStorage on release.
  */
 function PanelResizer({ panel }: { panel: PanelId }): JSX.Element {
-  const setPanelSize = useEditor((s) => s.setPanelSize);
-  const horizontal = panel === "timeline";
+  const setPanelSize = useApp((s) => s.setPanelSize);
 
   const onMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startY = e.clientY;
-    const start = useEditor.getState().panelSizes[panel];
+    const start = useApp.getState().panelSizes[panel];
     const el = e.currentTarget;
     el.classList.add("active");
-    document.body.style.cursor = horizontal ? "row-resize" : "col-resize";
+    document.body.style.cursor = "col-resize";
 
-    // rAF-coalesce moves: a raw mousemove stream re-rendered the shell (and,
-    // pre-memoization, every panel) plus wrote localStorage per pixel. Now at
-    // most one store update per frame; localStorage is persisted once on mouseup.
+    // rAF-coalesce moves: at most one store update per frame; localStorage is
+    // persisted once on mouseup.
     let raf = 0;
     let last = start;
     const apply = () => {
@@ -219,9 +150,7 @@ function PanelResizer({ panel }: { panel: PanelId }): JSX.Element {
       setPanelSize(panel, last, false); // don't touch localStorage mid-drag
     };
     const onMove = (ev: MouseEvent) => {
-      if (panel === "left") last = start + (ev.clientX - startX);
-      else if (panel === "right") last = start - (ev.clientX - startX);
-      else last = start - (ev.clientY - startY);
+      last = start + (ev.clientX - startX);
       if (!raf) raf = requestAnimationFrame(apply);
     };
     const onUp = () => {
@@ -238,18 +167,17 @@ function PanelResizer({ panel }: { panel: PanelId }): JSX.Element {
 
   return (
     <div
-      className={`panel-resizer ${horizontal ? "horizontal" : "vertical"}`}
+      className="panel-resizer vertical"
       onMouseDown={onMouseDown}
       role="separator"
-      aria-orientation={horizontal ? "horizontal" : "vertical"}
+      aria-orientation="vertical"
     />
   );
 }
 
 function Toast({ notice, onClose }: { notice: Notice; onClose: () => void }): JSX.Element {
-  // Errors persist until dismissed (they were vanishing after 8s with no
-  // history); info auto-dismisses. Keyed on notice.id at the call site, so an
-  // App re-render no longer restarts the timer (the old dismiss-never bug).
+  // Errors persist until dismissed; info auto-dismisses. Keyed on notice.id at
+  // the call site, so an App re-render doesn't restart the timer.
   useEffect(() => {
     if (notice.kind === "error") return;
     const t = setTimeout(onClose, 6000);

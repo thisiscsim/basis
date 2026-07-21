@@ -1,5 +1,5 @@
 ---
-description: Engine script conventions (app/scripts — protocol, LLM, safety)
+description: Engine script conventions (app/scripts — protocol, LLM, EDGAR, safety)
 globs: app/scripts/**
 alwaysApply: false
 ---
@@ -7,21 +7,21 @@ alwaysApply: false
 # Engine script conventions (app/scripts)
 
 ## Contract with the app
-- Plain Node ESM (`.mjs`), spawned by the main process. Communicate over stdout with line protocol: `PHASE <text>`, `PROGRESS <0-100>`, `DONE <result>`; errors to stderr as `ERROR <message>` + non-zero exit.
-- Resolve the project dir from `process.env.APERTURE_PROJECTS_DIR` (fallback `<repo>/projects`), args via `--slug <slug>` style flags.
-- `edl.json` read from disk is untrusted (shareable file): re-check any path derived from it stays inside the project dir before touching the filesystem or ffmpeg.
+- Plain Node ESM (`.mjs`), spawned by the main process. Communicate over stdout with line protocol: `PHASE <text>`, `PROGRESS <0-100>`, `DONE <result>`; errors to stderr as `ERROR <message>` + non-zero exit (1 unexpected, 2 domain failure, 3 LLM not configured).
+- Resolve the workspace dir from `process.env.BASIS_WORKSPACES_DIR` (fallback `<repo>/workspaces`) via `lib/workspace-dir.mjs` — the slug is untrusted CLI/agent input (`--slug ../../etc` must fail).
+- Workspace JSON read from disk is untrusted (shareable files): always go through the `@basis/schema` `parse*` helpers, and re-validate before writing anything back.
 
 ## LLM calls
-- Always go through `llm.mjs` (`resolveModel()`, `isLlmConfigured()`, `reasoningEffort()`); never instantiate a provider directly.
-- Cap output: `maxOutputTokens` set explicitly. `providerOptions: { openai: { reasoningEffort: reasoningEffort() } }`.
-- Model output is repaired, not trusted: `extractJson` → `sanitizeEdl` → `parseEdl`, with one retry carrying the validation error back to the model.
-- Deterministic insurance after every whole-EDL model response: `enforceStyle` (look) and `restoreAudioTracks` (never lose music/voiceover).
+- Always go through `llm.mjs` (`resolveModel()`, `isLlmConfigured()`, `reasoningEffort()` — config resolution lives in `@basis/schema` llm-config); never instantiate a provider directly.
+- Cap output: `maxOutputTokens` set explicitly. `providerOptions: { openai: { reasoningEffort: reasoningEffort() } }`. Never set `temperature` (reasoning models reject it).
+- Model output is repaired, not trusted: `extractJson` → schema parse, with one retry carrying the validation errors back to the model.
+- **Citations are the product**: every brief claim must quote its source verbatim; verify with `verifyQuote` and drop what fails. Deterministic metrics (x-ray numbers) are ground truth the model may not contradict.
+- Diff-first to control tokens: extract Items (Risk Factors, MD&A) with `lib/filings.mjs`, never send whole filings.
 
-## Media
-- ffmpeg = `ffmpeg-static` import; spawn argv arrays only (no shell strings).
-- Voice/TTS audio must be loudness-normalized (two-pass loudnorm, −14 LUFS / −1.5 dBTP) before landing in a project.
-- Cache expensive synth/analysis keyed by content hash so re-runs don't re-burn API credits.
+## EDGAR
+- All requests go through `lib/edgar.mjs`: declarative User-Agent with contact email (`BASIS_EDGAR_CONTACT`), ≥120ms between requests, on-disk caching (`BASIS_CACHE_DIR`). Respect the SEC fair-access policy — this is a shared public resource.
+- One ticker failing (rate limit, network) must not sink a whole run; log `ERROR <ticker>: ...` and continue.
 
 ## Testing
-- Pure logic lives in `*-util.mjs` with a sibling `*.test.mjs` (vitest node project). Scripts themselves stay thin.
+- Pure logic lives in `lib/*.mjs` with a sibling `*.test.mjs` (vitest node project). Scripts themselves stay thin.
 - `node --check app/scripts/<file>.mjs` before committing.

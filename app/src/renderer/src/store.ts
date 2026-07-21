@@ -1,28 +1,26 @@
 import { create } from "zustand";
-import type { Edl, Meta } from "@reel/edl";
-import type { ProjectSummary } from "../../preload";
+import type { Alerts, Brief, Digest, Ips, Meta, Portfolio, Watchlist, Xray } from "@basis/schema";
+import type { BriefSummary, ChatMessage, WorkspaceSummary } from "../../preload";
 
-export type RightTab = "inspector" | "style" | "critique";
+export type WorkspaceTab = "digest" | "research" | "coach";
 export type Theme = "dark" | "light";
-export type View = "home" | "editor";
+export type View = "home" | "workspace";
 
-const THEME_KEY = "aperture:theme";
-const LAYOUT_KEY = "aperture:panel-layout";
+const THEME_KEY = "basis:theme";
+const LAYOUT_KEY = "basis:panel-layout";
 
-export type PanelId = "left" | "right" | "timeline";
-/** Resize clamps: [min, max] px. Left/right are widths, timeline is height. */
+export type PanelId = "left";
+/** Resize clamps: [min, max] px. */
 export const PANEL_LIMITS: Record<PanelId, [number, number]> = {
   left: [220, 440],
-  right: [240, 440],
-  timeline: [160, 440],
 };
-const PANEL_DEFAULTS: Record<PanelId, number> = { left: 300, right: 300, timeline: 240 };
+const PANEL_DEFAULTS: Record<PanelId, number> = { left: 300 };
 
 function initialPanelSizes(): Record<PanelId, number> {
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}") as Partial<Record<PanelId, number>>;
     const out = { ...PANEL_DEFAULTS };
-    for (const id of ["left", "right", "timeline"] as PanelId[]) {
+    for (const id of ["left"] as PanelId[]) {
       const v = saved[id];
       if (typeof v === "number" && Number.isFinite(v)) {
         out[id] = Math.min(Math.max(v, PANEL_LIMITS[id][0]), PANEL_LIMITS[id][1]);
@@ -66,195 +64,23 @@ function withViewTransition(mutate: () => void): void {
   else mutate();
 }
 
-// Debounced persistence of edits back to projects/<slug>/edl.json. Editor edits
-// mutate the in-memory EDL immediately; we flush to disk shortly after so the
-// agent/renderer (which re-read the file) see the same source of truth.
-//
-// The pending payload is tracked explicitly (not just captured in the timer
-// closure) so project switches can flush it, external reloads can drop it,
-// and quitting can't silently lose the last edit.
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingSave: { slug: string; edl: Edl } | null = null;
-
-function clearSaveTimer(): void {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-}
-
-async function persist(slug: string, edl: Edl): Promise<void> {
-  let res: { ok: boolean; error?: string } | null | undefined;
-  try {
-    res = await window.api?.saveEdl(slug, edl);
-  } catch (err) {
-    res = { ok: false, error: String(err) };
-  }
-  if (res && res.ok === false) {
-    // The edit only exists in memory; keep the dirty flag and tell the user
-    // instead of silently diverging from disk.
-    useEditor.setState({ saveError: res.error ?? "unknown error" });
-    useEditor
-      .getState()
-      .pushNotice(
-        "error",
-        `Autosave failed — latest edits are not on disk (${res.error ?? "unknown error"})`,
-      );
-    return;
-  }
-  // Clear dirty only if nothing newer is in flight and the store still holds
-  // exactly what we saved (an edit during the await keeps the flag).
-  const s = useEditor.getState();
-  if (!pendingSave && s.slug === slug && s.edl === edl) {
-    useEditor.setState({ dirty: false, saveError: null });
-  }
-}
-
-/** Write the pending edit (if any) to disk now. */
-function flushPendingSave(): void {
-  clearSaveTimer();
-  const p = pendingSave;
-  pendingSave = null;
-  if (p) void persist(p.slug, p.edl);
-}
-
-/**
- * Disk truth for `slug` is about to replace in-memory state (external reload):
- * drop a pending save for that project — flushing it would overwrite the
- * newer file and re-suppress the watcher echo, leaving UI and disk diverged.
- * A pending save for a *different* project is unrelated; flush it.
- */
-export function cancelPendingSave(slug: string | null): void {
-  if (pendingSave && pendingSave.slug !== slug) {
-    flushPendingSave();
-    return;
-  }
-  clearSaveTimer();
-  pendingSave = null;
-}
-
-/** Test-only: drop any pending autosave without writing or flushing. */
-export function _dropPendingSave(): void {
-  clearSaveTimer();
-  pendingSave = null;
-}
-
-function scheduleSave(slug: string | null, edl: Edl): void {
-  if (!slug) return;
-  // Never let a new project's first edit clobber the previous project's
-  // pending save via the shared timer.
-  if (pendingSave && pendingSave.slug !== slug) flushPendingSave();
-  pendingSave = { slug, edl };
-  clearSaveTimer();
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    flushPendingSave();
-  }, 400);
-}
-
-// Renderer teardown (quit, reload) must not lose the debounce window's edit.
-// `beforeunload` can't await, but the IPC message is dispatched before the
-// process goes away, and the main process writes synchronously.
-if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => flushPendingSave());
-}
-
-export interface ExportResult {
-  ok: boolean;
-  output?: string;
-  error?: string;
-}
-
-interface EditorState {
-  view: View;
-  projects: ProjectSummary[];
-  edl: Edl | null;
-  slug: string | null;
+/** The documents of one loaded workspace, as read from disk. */
+export interface WorkspaceData {
+  slug: string;
   dir: string | null;
-  promptText: string;
   meta: Meta | null;
-  loadError: string | null;
+  portfolio: Portfolio;
+  ips: Ips;
+  watchlist: Watchlist;
+  alerts: Alerts;
+  xray: Xray | null;
+  digest: Digest | null;
+  briefs: BriefSummary[];
+}
 
-  /** True while an edit exists that has not been confirmed written to disk. */
-  dirty: boolean;
-  /** Last autosave failure (null when saves are healthy). */
-  saveError: string | null;
-
-  selectedClipId: string | null;
-  currentFrame: number;
-  rightTab: RightTab;
-  theme: Theme;
-  seek: (frame: number) => void;
-  playing: boolean;
-  muted: boolean;
-  playerCtl: { toggle: () => void; setMuted: (m: boolean) => void } | null;
-  panelSizes: Record<PanelId, number>;
-  /** Cmd+\ focus mode: hide the rails + timeline, keep only the canvas. */
-  panelsHidden: boolean;
-
-  exporting: boolean;
-  exportProgress: number;
-  exportPhase: string;
-  exportResult: ExportResult | null;
-
-  generating: boolean;
-  autotuning: boolean;
-  /** Toast queue: concurrent operations no longer overwrite each other's messages. */
-  notices: Notice[];
-  /** Returns a promise so callers can hold busy state until the load lands. */
-  reloadProject: () => void | Promise<void>;
-
-  setView: (view: View) => void;
-  setProjects: (projects: ProjectSummary[]) => void;
-  openProject: (slug: string) => void;
-  /** Atomic Home -> editor entry: project data + view switch in one commit. */
-  enterProject: (p: {
-    edl: Edl;
-    slug?: string | null;
-    dir?: string | null;
-    promptText?: string;
-    meta?: Meta | null;
-  }) => void;
-  goHome: () => void;
-  setProject: (p: {
-    edl: Edl;
-    slug?: string | null;
-    dir?: string | null;
-    promptText?: string;
-    meta?: Meta | null;
-  }) => void;
-  setPromptText: (text: string) => void;
-  setLoadError: (msg: string | null) => void;
-  updateEdl: (mutate: (edl: Edl) => void) => void;
-  edlPast: Edl[];
-  edlFuture: Edl[];
-  undoEdl: () => void;
-  redoEdl: () => void;
-  saveNow: () => Promise<void>;
-  select: (id: string | null) => void;
-  setCurrentFrame: (frame: number) => void;
-  setRightTab: (tab: RightTab) => void;
-  setSeek: (fn: (frame: number) => void) => void;
-  setTheme: (theme: Theme) => void;
-  toggleTheme: () => void;
-  setPlaying: (v: boolean) => void;
-  toggleMuted: () => void;
-  setPlayerCtl: (ctl: { toggle: () => void; setMuted: (m: boolean) => void } | null) => void;
-  setPanelSize: (panel: PanelId, px: number, persist?: boolean) => void;
-  togglePanels: () => void;
-
-  startExport: () => void;
-  setExportProgress: (pct: number) => void;
-  setExportPhase: (phase: string) => void;
-  finishExport: (result: ExportResult) => void;
-  closeExport: () => void;
-
-  setGenerating: (value: boolean) => void;
-  setAutotuning: (value: boolean) => void;
-  /** Enqueue a toast; returns its id. Errors persist until dismissed, info auto-dismisses. */
-  pushNotice: (kind: "error" | "info", text: string) => number;
-  dismissNotice: (id: number) => void;
-  setReload: (fn: () => void | Promise<void>) => void;
+export interface ChatEntry extends ChatMessage {
+  /** True while this assistant message is still streaming in. */
+  pending?: boolean;
 }
 
 export interface Notice {
@@ -264,153 +90,161 @@ export interface Notice {
 }
 let noticeSeq = 0;
 
-export const useEditor = create<EditorState>()((set, get) => ({
+export type JobId = "brief" | "xray" | "monitor" | "digest";
+
+export interface JobState {
+  running: boolean;
+  phase: string;
+  progress: number;
+}
+
+const idleJob = (): JobState => ({ running: false, phase: "", progress: 0 });
+
+interface AppState {
+  view: View;
+  workspaces: WorkspaceSummary[];
+  ws: WorkspaceData | null;
+  slug: string | null;
+  loadError: string | null;
+  tab: WorkspaceTab;
+
+  theme: Theme;
+  panelSizes: Record<PanelId, number>;
+
+  /** Long-running engine-script jobs, keyed by channel prefix. */
+  jobs: Record<JobId, JobState>;
+
+  /** Coach/tutor chat (session-scoped; the gate log is what persists). */
+  chat: ChatEntry[];
+  chatStreaming: boolean;
+
+  /** Research surface selection (brief filename). */
+  openBriefFile: string | null;
+  openBrief: Brief | null;
+
+  notices: Notice[];
+  reloadWorkspace: () => void | Promise<void>;
+
+  setView: (view: View) => void;
+  setWorkspaces: (list: WorkspaceSummary[]) => void;
+  openWorkspace: (slug: string) => void;
+  goHome: () => void;
+  setWorkspaceData: (data: WorkspaceData) => void;
+  setLoadError: (msg: string | null) => void;
+  setTab: (tab: WorkspaceTab) => void;
+
+  /** Persist one document, refreshing local state optimistically. */
+  savePortfolio: (doc: Portfolio) => Promise<void>;
+  saveIps: (doc: Ips) => Promise<void>;
+  saveWatchlist: (doc: Watchlist) => Promise<void>;
+  saveAlerts: (doc: Alerts) => Promise<void>;
+
+  setTheme: (theme: Theme) => void;
+  toggleTheme: () => void;
+  setPanelSize: (panel: PanelId, px: number, persist?: boolean) => void;
+
+  startJob: (job: JobId) => void;
+  setJobPhase: (job: JobId, phase: string) => void;
+  setJobProgress: (job: JobId, pct: number) => void;
+  finishJob: (job: JobId) => void;
+
+  appendChat: (entry: ChatEntry) => void;
+  appendChatDelta: (delta: string) => void;
+  finishChatMessage: (text: string) => void;
+  setChatStreaming: (v: boolean) => void;
+  clearChat: () => void;
+
+  setOpenBrief: (file: string | null, brief: Brief | null) => void;
+
+  /** Enqueue a toast; returns its id. Errors persist until dismissed, info auto-dismisses. */
+  pushNotice: (kind: "error" | "info", text: string) => number;
+  dismissNotice: (id: number) => void;
+  setReload: (fn: () => void | Promise<void>) => void;
+}
+
+async function persistDoc(
+  slug: string,
+  save: () => Promise<{ ok: boolean; error?: string } | undefined>,
+  label: string,
+): Promise<void> {
+  let res: { ok: boolean; error?: string } | undefined;
+  try {
+    res = await save();
+  } catch (err) {
+    res = { ok: false, error: String(err) };
+  }
+  if (res && res.ok === false) {
+    useApp.getState().pushNotice("error", `Couldn't save ${label}: ${res.error ?? "unknown error"}`);
+  }
+}
+
+export const useApp = create<AppState>()((set, get) => ({
   view: "home",
-  projects: [],
-  edl: null,
+  workspaces: [],
+  ws: null,
   slug: null,
-  dir: null,
-  promptText: "",
-  meta: null,
   loadError: null,
-  dirty: false,
-  saveError: null,
+  tab: "digest",
 
-  selectedClipId: null,
-  currentFrame: 0,
-  rightTab: "inspector",
   theme: initialTheme(),
-  seek: () => {},
-  playing: false,
-  muted: false,
-  playerCtl: null,
   panelSizes: initialPanelSizes(),
-  panelsHidden: false,
 
-  exporting: false,
-  exportProgress: 0,
-  exportPhase: "",
-  exportResult: null,
+  jobs: { brief: idleJob(), xray: idleJob(), monitor: idleJob(), digest: idleJob() },
 
-  generating: false,
-  autotuning: false,
+  chat: [],
+  chatStreaming: false,
+
+  openBriefFile: null,
+  openBrief: null,
+
   notices: [],
-  reloadProject: () => {},
+  reloadWorkspace: () => {},
 
   setView: (view) => set({ view }),
-  setProjects: (projects) => set({ projects }),
-  openProject: (slug) => {
-    // A pending save can only belong to the previous context; persist it.
-    flushPendingSave();
+  setWorkspaces: (workspaces) => set({ workspaces }),
+  openWorkspace: (slug) =>
     set({
       slug,
-      view: "editor",
-      edl: null,
+      view: "workspace",
+      ws: null,
       loadError: null,
-      dirty: false,
-      saveError: null,
-      selectedClipId: null,
-      currentFrame: 0,
-      playing: false,
+      tab: "digest",
+      chat: [],
+      chatStreaming: false,
+      openBriefFile: null,
+      openBrief: null,
       notices: [],
-      rightTab: "inspector",
-    });
-  },
-  enterProject: (p) => {
-    // Incoming data is fresh disk truth for p.slug: drop a same-project
-    // pending save, flush any other project's.
-    cancelPendingSave(p.slug ?? null);
-    set({
-      view: "editor",
-      edl: p.edl,
-      slug: p.slug ?? null,
-      dir: p.dir ?? null,
-      promptText: p.promptText ?? "",
-      meta: p.meta ?? null,
-      loadError: null,
-      dirty: false,
-      saveError: null,
-      selectedClipId: null,
-      currentFrame: 0,
-      playing: false,
-      notices: [],
-      rightTab: "inspector",
-      edlPast: [],
-      edlFuture: [],
-    });
-  },
-  goHome: () => {
-    flushPendingSave();
-    set({ view: "home", selectedClipId: null });
-  },
-  setProject: (p) => {
-    // External load (open/generate/auto-improve/agent-write reload): disk is
-    // the newer truth — a stale pending save must not overwrite it.
-    cancelPendingSave(p.slug ?? null);
-    set({
-      edl: p.edl,
-      slug: p.slug ?? null,
-      dir: p.dir ?? null,
-      promptText: p.promptText ?? "",
-      meta: p.meta ?? null,
-      loadError: null,
-      dirty: false,
-      saveError: null,
-      // External load (open/generate/auto-improve reload) resets edit history.
-      edlPast: [],
-      edlFuture: [],
-    });
-  },
-  setPromptText: (text) => set({ promptText: text }),
-  saveNow: async () => {
-    clearSaveTimer();
-    pendingSave = null;
-    const { slug, edl } = get();
-    if (slug && edl) await persist(slug, edl);
-  },
+    }),
+  goHome: () => set({ view: "home", slug: null, ws: null, chat: [], chatStreaming: false }),
+  setWorkspaceData: (data) => set({ ws: data, loadError: null }),
   setLoadError: (msg) => set({ loadError: msg }),
-  edlPast: [],
-  edlFuture: [],
-  updateEdl: (mutate) =>
-    set((s) => {
-      if (!s.edl) return {};
-      // updateEdl replaces the EDL (copy-on-write), so the previous object can
-      // be kept on the undo stack without cloning.
-      const next = structuredClone(s.edl);
-      mutate(next);
-      scheduleSave(s.slug, next);
-      return { edl: next, dirty: true, edlPast: [...s.edlPast.slice(-49), s.edl], edlFuture: [] };
-    }),
-  undoEdl: () =>
-    set((s) => {
-      const prev = s.edlPast[s.edlPast.length - 1];
-      if (!prev || !s.edl) return {};
-      scheduleSave(s.slug, prev);
-      return {
-        edl: prev,
-        dirty: true,
-        edlPast: s.edlPast.slice(0, -1),
-        edlFuture: [s.edl, ...s.edlFuture],
-        selectedClipId: clipExists(prev, s.selectedClipId) ? s.selectedClipId : null,
-      };
-    }),
-  redoEdl: () =>
-    set((s) => {
-      const next = s.edlFuture[0];
-      if (!next || !s.edl) return {};
-      scheduleSave(s.slug, next);
-      return {
-        edl: next,
-        dirty: true,
-        edlPast: [...s.edlPast, s.edl],
-        edlFuture: s.edlFuture.slice(1),
-        selectedClipId: clipExists(next, s.selectedClipId) ? s.selectedClipId : null,
-      };
-    }),
-  select: (id) => set({ selectedClipId: id, rightTab: id ? "inspector" : get().rightTab }),
-  setCurrentFrame: (frame) => set({ currentFrame: frame }),
-  setRightTab: (tab) => set({ rightTab: tab }),
-  setSeek: (fn) => set({ seek: fn }),
+  setTab: (tab) => set({ tab }),
+
+  savePortfolio: async (doc) => {
+    const { slug, ws } = get();
+    if (!slug || !ws) return;
+    set({ ws: { ...ws, portfolio: doc } });
+    await persistDoc(slug, () => window.api?.savePortfolio(slug, doc), "portfolio");
+  },
+  saveIps: async (doc) => {
+    const { slug, ws } = get();
+    if (!slug || !ws) return;
+    set({ ws: { ...ws, ips: doc } });
+    await persistDoc(slug, () => window.api?.saveIps(slug, doc), "IPS");
+  },
+  saveWatchlist: async (doc) => {
+    const { slug, ws } = get();
+    if (!slug || !ws) return;
+    set({ ws: { ...ws, watchlist: doc } });
+    await persistDoc(slug, () => window.api?.saveWatchlist(slug, doc), "watchlist");
+  },
+  saveAlerts: async (doc) => {
+    const { slug, ws } = get();
+    if (!slug || !ws) return;
+    set({ ws: { ...ws, alerts: doc } });
+    await persistDoc(slug, () => window.api?.saveAlerts(slug, doc), "alerts");
+  },
+
   setTheme: (theme) => {
     withViewTransition(() => {
       applyTheme(theme);
@@ -418,14 +252,6 @@ export const useEditor = create<EditorState>()((set, get) => ({
     });
   },
   toggleTheme: () => get().setTheme(get().theme === "dark" ? "light" : "dark"),
-
-  setPlaying: (v) => set({ playing: v }),
-  toggleMuted: () => {
-    const muted = !get().muted;
-    get().playerCtl?.setMuted(muted);
-    set({ muted });
-  },
-  setPlayerCtl: (ctl) => set({ playerCtl: ctl }),
   setPanelSize: (panel, px, persist = true) => {
     const [min, max] = PANEL_LIMITS[panel];
     const next = { ...get().panelSizes, [panel]: Math.round(Math.min(Math.max(px, min), max)) };
@@ -439,17 +265,41 @@ export const useEditor = create<EditorState>()((set, get) => ({
       // persistence is best-effort
     }
   },
-  togglePanels: () => set({ panelsHidden: !get().panelsHidden }),
 
-  startExport: () =>
-    set({ exporting: true, exportProgress: 0, exportPhase: "preparing", exportResult: null }),
-  setExportProgress: (pct) => set({ exportProgress: pct }),
-  setExportPhase: (phase) => set({ exportPhase: phase }),
-  finishExport: (result) => set({ exporting: false, exportResult: result }),
-  closeExport: () => set({ exportResult: null, exportProgress: 0, exportPhase: "" }),
+  startJob: (job) =>
+    set((s) => ({ jobs: { ...s.jobs, [job]: { running: true, phase: "starting", progress: 0 } } })),
+  setJobPhase: (job, phase) => set((s) => ({ jobs: { ...s.jobs, [job]: { ...s.jobs[job], phase } } })),
+  setJobProgress: (job, progress) =>
+    set((s) => ({ jobs: { ...s.jobs, [job]: { ...s.jobs[job], progress } } })),
+  finishJob: (job) => set((s) => ({ jobs: { ...s.jobs, [job]: idleJob() } })),
 
-  setGenerating: (value) => set({ generating: value }),
-  setAutotuning: (value) => set({ autotuning: value }),
+  appendChat: (entry) => set((s) => ({ chat: [...s.chat, entry] })),
+  appendChatDelta: (delta) =>
+    set((s) => {
+      const last = s.chat[s.chat.length - 1];
+      if (!last || last.role !== "assistant" || !last.pending) {
+        return { chat: [...s.chat, { role: "assistant", content: delta, pending: true }] };
+      }
+      const next = [...s.chat];
+      next[next.length - 1] = { ...last, content: last.content + delta };
+      return { chat: next };
+    }),
+  finishChatMessage: (text) =>
+    set((s) => {
+      const next = [...s.chat];
+      const last = next[next.length - 1];
+      if (last && last.role === "assistant" && last.pending) {
+        next[next.length - 1] = { role: "assistant", content: text };
+      } else {
+        next.push({ role: "assistant", content: text });
+      }
+      return { chat: next, chatStreaming: false };
+    }),
+  setChatStreaming: (v) => set({ chatStreaming: v }),
+  clearChat: () => set({ chat: [], chatStreaming: false }),
+
+  setOpenBrief: (file, brief) => set({ openBriefFile: file, openBrief: brief }),
+
   pushNotice: (kind, text) => {
     const id = ++noticeSeq;
     // Cap the queue so a runaway error loop can't grow it without bound.
@@ -457,15 +307,10 @@ export const useEditor = create<EditorState>()((set, get) => ({
     return id;
   },
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
-  setReload: (fn) => set({ reloadProject: fn }),
+  setReload: (fn) => set({ reloadWorkspace: fn }),
 }));
-
-function clipExists(edl: Edl, id: string | null): boolean {
-  if (!id) return false;
-  return edl.tracks.some((t) => t.type !== "caption" && t.clips.some((c) => c.id === id));
-}
 
 // Apply the persisted/system theme to <html> before the first paint. Don't
 // persist here, so a system-derived default keeps following the OS until the
 // user makes an explicit choice via the toggle.
-applyTheme(useEditor.getState().theme, false);
+applyTheme(useApp.getState().theme, false);
