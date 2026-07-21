@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseAlerts, parseWatchlist } from "@basis/schema";
+import { parseAlerts, parsePlan, parseWatchlist, parseXray } from "@basis/schema";
 import { readJsonMaybe, tsvCell } from "./lib/cli.mjs";
 import { ensureDataDir } from "./lib/data-dir.mjs";
 import {
@@ -67,12 +67,18 @@ async function main() {
 
   const watchlistFile = path.join(dir, "watchlist.json");
   const watchlist = parseWatchlist(readJsonMaybe(watchlistFile));
-  if (watchlist.entries.length === 0) {
-    console.log("DONE 0 new filings (watchlist is empty)");
-    return;
-  }
   const alertsFile = path.join(dir, "alerts.json");
   const alerts = parseAlerts(readJsonMaybe(alertsFile));
+  const planAlerts = planReminders(dir, alerts);
+  if (watchlist.entries.length === 0) {
+    if (planAlerts > 0) {
+      fs.writeFileSync(alertsFile, `${JSON.stringify(parseAlerts(alerts), null, 2)}\n`);
+    }
+    console.log(
+      `DONE 0 new filings (watchlist is empty)${planAlerts ? `, ${planAlerts} plan reminder(s)` : ""}`,
+    );
+    return;
+  }
   const known = new Set(alerts.alerts.map((a) => a.id));
   const cacheDir = edgarCacheDir(REPO_ROOT);
 
@@ -139,7 +145,71 @@ async function main() {
   alerts.alerts = alerts.alerts.slice(0, 500);
   fs.writeFileSync(alertsFile, `${JSON.stringify(parseAlerts(alerts), null, 2)}\n`);
   fs.writeFileSync(watchlistFile, `${JSON.stringify(parseWatchlist(watchlist), null, 2)}\n`);
-  console.log(`DONE ${totalNew} new filing${totalNew === 1 ? "" : "s"}`);
+  console.log(
+    `DONE ${totalNew} new filing${totalNew === 1 ? "" : "s"}${planAlerts ? `, ${planAlerts} plan reminder(s)` : ""}`,
+  );
+}
+
+/**
+ * The no-execution "boring bots": append plan reminders (DCA day, drift band
+ * exceeded) to the alerts inbox, at most once per month / per week
+ * respectively (cursors live in plan.json). Mutates `alerts` in place and
+ * returns how many reminders were added.
+ */
+function planReminders(dir, alerts) {
+  const planFile = path.join(dir, "plan.json");
+  let plan;
+  try {
+    plan = parsePlan(readJsonMaybe(planFile));
+  } catch {
+    return 0;
+  }
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const month = today.slice(0, 7);
+  let added = 0;
+
+  if (plan.dca && now.getUTCDate() >= plan.dca.dayOfMonth && plan.lastDcaAlertMonth !== month) {
+    alerts.alerts.unshift({
+      id: `plan-dca-${month}`,
+      kind: "plan",
+      form: "PLAN",
+      filedAt: today,
+      title: `DCA reminder: your plan says invest $${plan.dca.amount} this month (day ${plan.dca.dayOfMonth}).`,
+      read: false,
+    });
+    plan.lastDcaAlertMonth = month;
+    added++;
+  }
+
+  try {
+    const xray = parseXray(readJsonMaybe(path.join(dir, "xray.json")));
+    const worst = [...xray.drift].sort((a, b) => Math.abs(b.driftPct) - Math.abs(a.driftPct))[0];
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 3600_000).toISOString();
+    if (
+      worst &&
+      Math.abs(worst.driftPct) > plan.rebalanceBandPct &&
+      (!plan.lastDriftAlertAt || plan.lastDriftAlertAt < weekAgo)
+    ) {
+      alerts.alerts.unshift({
+        id: `plan-drift-${today}`,
+        kind: "plan",
+        form: "PLAN",
+        filedAt: today,
+        title: `Rebalance check: ${worst.label} is ${worst.driftPct > 0 ? "+" : ""}${worst.driftPct} pts vs target (band ±${plan.rebalanceBandPct}). See the X-ray.`,
+        read: false,
+      });
+      plan.lastDriftAlertAt = now.toISOString();
+      added++;
+    }
+  } catch {
+    // no/invalid x-ray: drift reminder just doesn't fire
+  }
+
+  if (added > 0) {
+    fs.writeFileSync(planFile, `${JSON.stringify(parsePlan(plan), null, 2)}\n`);
+  }
+  return added;
 }
 
 main().catch((err) => fail(err?.stack ?? String(err), 1));

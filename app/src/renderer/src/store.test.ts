@@ -12,6 +12,9 @@ function seedData(): AppData {
     digest: null,
     briefs: [],
     ideas: { version: 1, ideas: [] },
+    paper: { version: 1, startCash: 100_000, cash: 100_000, positions: [], orders: [], equity: [] },
+    plan: { version: 1, rebalanceBandPct: 5 },
+    backtests: [],
   };
 }
 
@@ -28,6 +31,8 @@ beforeEach(() => {
       xray: { running: false, phase: "", progress: 0 },
       monitor: { running: false, phase: "", progress: 0 },
       digest: { running: false, phase: "", progress: 0 },
+      backtest: { running: false, phase: "", progress: 0 },
+      paper: { running: false, phase: "", progress: 0 },
     },
   });
 });

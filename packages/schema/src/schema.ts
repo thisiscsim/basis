@@ -173,13 +173,18 @@ export const BriefSchema = z.object({
   droppedClaims: z.number().int().nonnegative().max(1000).default(0),
 });
 
-/** One filing event surfaced by the monitor (10-K/10-Q/8-K/...). */
+/**
+ * One inbox event: a filing surfaced by the monitor (10-K/10-Q/8-K/...) or a
+ * plan reminder (DCA day, drift band exceeded). Plan alerts have no
+ * ticker/accession.
+ */
 export const AlertSchema = z.object({
   id: z.string().min(1).max(128),
-  ticker: TickerSchema,
+  kind: z.enum(["filing", "plan"]).default("filing"),
+  ticker: TickerSchema.optional(),
   form: z.string().min(1).max(20),
   filedAt: z.string().max(64),
-  accession: AccessionSchema,
+  accession: AccessionSchema.optional(),
   title: z.string().max(512).default(""),
   url: HttpsUrlSchema.optional(),
   /** LLM diff summary ("what changed vs the prior filing"), when available. */
@@ -277,4 +282,118 @@ export const IdeaSchema = z.object({
 export const IdeasSchema = z.object({
   version: z.literal(1).default(1),
   ideas: z.array(IdeaSchema).max(500).default([]),
+});
+
+// ---- The Lab (Phase 4): backtests, paper trading, plan reminders ----
+
+export const BacktestPresetSchema = z.enum([
+  "buy-and-hold",
+  "dca-monthly",
+  "ma200-trend",
+  "momentum-rotation",
+]);
+
+export const BacktestConfigSchema = z.object({
+  preset: BacktestPresetSchema,
+  tickers: z.array(TickerSchema).min(1).max(10),
+  /** ISO dates (YYYY-MM-DD). */
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  /** Round-trip friction applied to every traded notional, basis points. */
+  costBps: z.number().finite().min(0).max(1000).default(5),
+});
+
+export const BacktestMetricsSchema = z.object({
+  cagrPct: z.number().finite().min(-100).max(100_000),
+  sharpe: z.number().finite().min(-100).max(100),
+  maxDrawdownPct: pct(),
+  trades: z.number().int().nonnegative().max(1_000_000),
+  totalReturnPct: z.number().finite().min(-100).max(1_000_000),
+});
+
+/** lab/backtests/<id>.json — one deterministic backtest run + its audit. */
+export const BacktestSchema = z.object({
+  version: z.literal(1).default(1),
+  id: z.string().min(1).max(64),
+  generatedAt: z.string().max(64).optional(),
+  config: BacktestConfigSchema,
+  metrics: BacktestMetricsSchema,
+  /** Buy-and-hold of the same tickers over the same window. */
+  benchmarkMetrics: BacktestMetricsSchema,
+  /** Downsampled equity curve (strategy vs benchmark), oldest first. */
+  equityCurve: z
+    .array(
+      z.object({
+        date: z.string().max(16),
+        value: bounded(1e15),
+        benchmarkValue: bounded(1e15),
+      }),
+    )
+    .max(400)
+    .default([]),
+  /** Deterministic hard warnings (zero costs, short window, in-sample-only...). */
+  warnings: z.array(z.string().max(500)).max(20).default([]),
+  /** LLM bias-audit notes (lookahead/survivorship/overfitting review). */
+  auditNotes: z.array(z.string().max(1000)).max(10).default([]),
+});
+
+export const PaperOrderSchema = z.object({
+  id: z.string().min(1).max(128),
+  at: z.string().max(64),
+  ticker: TickerSchema,
+  side: z.enum(["buy", "sell"]),
+  shares: z.number().finite().positive().max(1e9),
+  status: z.enum(["pending", "filled", "cancelled", "rejected"]).default("pending"),
+  filledAt: z.string().max(64).optional(),
+  fillPrice: bounded(1e9).optional(),
+  note: z.string().max(256).optional(),
+});
+
+/**
+ * paper.json — the paper-trading gauntlet. Orders fill at the NEXT day's
+ * close (no same-day fills: that would be lookahead). Equity is marked
+ * against buy-and-hold SPY from the account's start.
+ */
+export const PaperAccountSchema = z.object({
+  version: z.literal(1).default(1),
+  startedAt: z.string().max(64).optional(),
+  startCash: bounded(1e12).default(100_000),
+  cash: bounded(1e12).default(100_000),
+  positions: z
+    .array(z.object({ ticker: TickerSchema, shares: z.number().finite().positive().max(1e9) }))
+    .max(100)
+    .default([]),
+  orders: z.array(PaperOrderSchema).max(500).default([]),
+  equity: z
+    .array(
+      z.object({
+        date: z.string().max(16),
+        value: bounded(1e15),
+        benchmarkValue: bounded(1e15).optional(),
+      }),
+    )
+    .max(400)
+    .default([]),
+  /** SPY close on the first mark, for the benchmark line. */
+  benchmarkStartPrice: bounded(1e9).optional(),
+});
+
+/** plan.json — the no-execution "boring bots": reminders only. */
+export const PlanSchema = z.object({
+  version: z.literal(1).default(1),
+  /** Monthly DCA reminder. */
+  dca: z
+    .object({
+      amount: bounded(1e9),
+      dayOfMonth: z.number().int().min(1).max(28),
+    })
+    .optional(),
+  /** Alert when any IPS bucket drifts beyond this band (percentage points). */
+  rebalanceBandPct: z.number().finite().min(0).max(50).default(5),
+  /** Reminder cursors so the monitor alerts once, not every run. */
+  lastDcaAlertMonth: z.string().max(7).optional(),
+  lastDriftAlertAt: z.string().max(64).optional(),
 });

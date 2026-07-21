@@ -86,7 +86,10 @@ function cacheFile(cacheDir, provider, ticker) {
 }
 
 async function fetchYahoo(ticker) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol(ticker))}?range=max&interval=1d`;
+  // Explicit period1/period2 — `range=max` silently downsamples to monthly
+  // rows, which would poison every daily computation downstream.
+  const period2 = Math.floor(Date.now() / 1000);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol(ticker))}?period1=0&period2=${period2}&interval=1d`;
   // Yahoo rejects requests without a browser-ish User-Agent.
   const text = await politeFetch(url, { "User-Agent": "Mozilla/5.0 (Basis local research app)" });
   return parseYahooChart(JSON.parse(text));

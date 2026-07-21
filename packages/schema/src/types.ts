@@ -2,6 +2,10 @@ import type { z } from "zod";
 import type {
   AlertSchema,
   AlertsSchema,
+  BacktestConfigSchema,
+  BacktestMetricsSchema,
+  BacktestPresetSchema,
+  BacktestSchema,
   BriefSchema,
   BriefSectionSchema,
   ClaimSchema,
@@ -13,6 +17,9 @@ import type {
   IdeasSchema,
   IpsSchema,
   MetaSchema,
+  PaperAccountSchema,
+  PaperOrderSchema,
+  PlanSchema,
   PortfolioSchema,
   WatchlistEntrySchema,
   WatchlistSchema,
@@ -46,3 +53,13 @@ export type Xray = z.infer<typeof XraySchema>;
 
 export type Idea = z.infer<typeof IdeaSchema>;
 export type Ideas = z.infer<typeof IdeasSchema>;
+
+export type BacktestPreset = z.infer<typeof BacktestPresetSchema>;
+export type BacktestConfig = z.infer<typeof BacktestConfigSchema>;
+export type BacktestMetrics = z.infer<typeof BacktestMetricsSchema>;
+export type Backtest = z.infer<typeof BacktestSchema>;
+
+export type PaperOrder = z.infer<typeof PaperOrderSchema>;
+export type PaperAccount = z.infer<typeof PaperAccountSchema>;
+
+export type Plan = z.infer<typeof PlanSchema>;
