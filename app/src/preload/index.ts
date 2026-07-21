@@ -1,5 +1,18 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import type { Alerts, Brief, Digest, Ideas, Ips, Portfolio, Watchlist, Xray } from "@basis/schema";
+import type {
+  Alerts,
+  Backtest,
+  BacktestConfig,
+  Brief,
+  Digest,
+  Ideas,
+  Ips,
+  PaperAccount,
+  Plan,
+  Portfolio,
+  Watchlist,
+  Xray,
+} from "@basis/schema";
 
 /**
  * The full settings shape as written to disk. Key/secret fields are
@@ -62,6 +75,19 @@ export interface LoadDataResult {
   digest?: Digest | null;
   briefs?: BriefSummary[];
   ideas?: Ideas;
+  paper?: PaperAccount;
+  plan?: Plan;
+  backtests?: BacktestSummary[];
+}
+
+export interface BacktestSummary {
+  file: string;
+  id: string;
+  preset: string;
+  tickers: string[];
+  generatedAt?: string;
+  cagrPct: number;
+  benchmarkCagrPct: number;
 }
 
 export interface PlaidSyncResult {
@@ -116,14 +142,20 @@ const api = {
   saveIps: (doc: Ips): Promise<SaveResult> => ipcRenderer.invoke("ips:save", doc),
   saveWatchlist: (doc: Watchlist): Promise<SaveResult> => ipcRenderer.invoke("watchlist:save", doc),
   saveAlerts: (doc: Alerts): Promise<SaveResult> => ipcRenderer.invoke("alerts:save", doc),
+  savePaper: (doc: PaperAccount): Promise<SaveResult> => ipcRenderer.invoke("paper:save", doc),
+  savePlan: (doc: Plan): Promise<SaveResult> => ipcRenderer.invoke("plan:save", doc),
   listBriefs: (): Promise<BriefSummary[]> => ipcRenderer.invoke("briefs:list"),
   loadBrief: (file: string): Promise<Brief | null> => ipcRenderer.invoke("brief:load", file),
+  loadBacktest: (file: string): Promise<Backtest | null> => ipcRenderer.invoke("backtest:load", file),
 
   // Jobs (engine scripts on the PHASE/PROGRESS protocol)
   startBrief: (ticker: string): Promise<JobResult> => ipcRenderer.invoke("brief:start", ticker),
   startXray: (): Promise<JobResult> => ipcRenderer.invoke("xray:start"),
   startMonitor: (): Promise<JobResult> => ipcRenderer.invoke("monitor:start"),
   startDigest: (): Promise<JobResult> => ipcRenderer.invoke("digest:start"),
+  startBacktest: (config: Partial<BacktestConfig>): Promise<JobResult> =>
+    ipcRenderer.invoke("backtest:start", config),
+  startPaperMark: (): Promise<JobResult> => ipcRenderer.invoke("paper:mark"),
 
   // Read-only broker sync (Plaid)
   plaidLink: (): Promise<PlaidSyncResult> => ipcRenderer.invoke("plaid:link"),

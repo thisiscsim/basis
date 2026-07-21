@@ -23,16 +23,23 @@ import {
 import { installCrashHandlers, logger, logsDir, openScriptLog } from "./logger";
 import {
   type Alerts,
+  type Backtest,
+  BacktestConfigSchema,
   type Digest,
   type Ips,
+  type PaperAccount,
   parseAlerts,
+  parseBacktest,
   parseBrief,
   parseDigest,
   parseIdeas,
   parseIps,
+  parsePaper,
+  parsePlan,
   parsePortfolio,
   parseWatchlist,
   parseXray,
+  type Plan,
   type Portfolio,
   TickerSchema,
   type Watchlist,
@@ -60,6 +67,8 @@ const MONITOR_SCRIPT = join(SCRIPTS_DIR, "monitor.mjs");
 const DIFF_SCRIPT = join(SCRIPTS_DIR, "diff-llm.mjs");
 const DIGEST_SCRIPT = join(SCRIPTS_DIR, "digest-llm.mjs");
 const GRADE_IDEAS_SCRIPT = join(SCRIPTS_DIR, "grade-ideas.mjs");
+const BACKTEST_SCRIPT = join(SCRIPTS_DIR, "backtest.mjs");
+const PAPER_MARK_SCRIPT = join(SCRIPTS_DIR, "paper-mark.mjs");
 
 /** Guarded path inside the single data dir (brief filenames etc. are untrusted). */
 function safeDataPath(...rel: string[]): string {
@@ -250,7 +259,7 @@ process.env["BASIS_CACHE_DIR"] = CACHE_DIR;
  */
 function scaffoldDataDir(): void {
   try {
-    for (const sub of ["briefs", "digests", "filings"]) {
+    for (const sub of ["briefs", "digests", "filings", join("lab", "backtests")]) {
       mkdirSync(join(DATA_DIR, sub), { recursive: true });
     }
     mkdirSync(CACHE_DIR, { recursive: true });
@@ -259,6 +268,8 @@ function scaffoldDataDir(): void {
       ["ips.json", parseIps({})],
       ["watchlist.json", parseWatchlist({})],
       ["alerts.json", parseAlerts({})],
+      ["paper.json", parsePaper({})],
+      ["plan.json", parsePlan({})],
     ];
     for (const [file, doc] of seed) {
       const path = join(DATA_DIR, file);
@@ -362,6 +373,44 @@ function listBriefs(): BriefSummary[] {
   return out.sort((a, b) => (b.generatedAt ?? b.file).localeCompare(a.generatedAt ?? a.file));
 }
 
+export interface BacktestSummary {
+  file: string;
+  id: string;
+  preset: string;
+  tickers: string[];
+  generatedAt?: string;
+  cagrPct: number;
+  benchmarkCagrPct: number;
+}
+
+const BACKTEST_FILE_RE = /^[a-z0-9-]{1,64}\.json$/;
+
+function listBacktests(): BacktestSummary[] {
+  const out: BacktestSummary[] = [];
+  try {
+    for (const file of readdirSync(join(DATA_DIR, "lab", "backtests"))) {
+      if (!BACKTEST_FILE_RE.test(file)) continue;
+      try {
+        const bt = parseBacktest(readJsonMaybe(safeDataPath("lab", "backtests", file)));
+        out.push({
+          file,
+          id: bt.id,
+          preset: bt.config.preset,
+          tickers: bt.config.tickers,
+          generatedAt: bt.generatedAt,
+          cagrPct: bt.metrics.cagrPct,
+          benchmarkCagrPct: bt.benchmarkMetrics.cagrPct,
+        });
+      } catch {
+        // skip invalid results
+      }
+    }
+  } catch {
+    // no lab dir yet
+  }
+  return out.sort((a, b) => (b.generatedAt ?? b.file).localeCompare(a.generatedAt ?? a.file)).slice(0, 20);
+}
+
 function latestDigest(): Digest | null {
   try {
     const files = readdirSync(join(DATA_DIR, "digests"))
@@ -398,6 +447,9 @@ function loadData() {
       digest: latestDigest(),
       briefs: listBriefs(),
       ideas: parseIdeas(readJsonMaybe(join(DATA_DIR, "ideas.json"))),
+      paper: parsePaper(readJsonMaybe(join(DATA_DIR, "paper.json"))),
+      plan: parsePlan(readJsonMaybe(join(DATA_DIR, "plan.json"))),
+      backtests: listBacktests(),
     };
   } catch (err) {
     return { ok: false as const, error: String(err) };
@@ -414,11 +466,11 @@ function markSelfWrite(): void {
   lastSelfWrite = Date.now();
 }
 
-type DocKind = "portfolio" | "ips" | "watchlist" | "alerts";
+type DocKind = "portfolio" | "ips" | "watchlist" | "alerts" | "paper" | "plan";
 
 function writeDoc(kind: DocKind, input: unknown): { ok: boolean; error?: string } {
   try {
-    let validated: Portfolio | Ips | Watchlist | Alerts;
+    let validated: Portfolio | Ips | Watchlist | Alerts | PaperAccount | Plan;
     switch (kind) {
       case "portfolio":
         validated = parsePortfolio(input);
@@ -433,6 +485,12 @@ function writeDoc(kind: DocKind, input: unknown): { ok: boolean; error?: string 
         break;
       case "alerts":
         validated = parseAlerts(input);
+        break;
+      case "paper":
+        validated = parsePaper(input);
+        break;
+      case "plan":
+        validated = parsePlan(input);
         break;
       default: {
         const exhaustive: never = kind;
@@ -698,6 +756,16 @@ app.whenReady().then(() => {
   ipcMain.handle("ips:save", (_event, doc: unknown) => writeDoc("ips", doc));
   ipcMain.handle("watchlist:save", (_event, doc: unknown) => writeDoc("watchlist", doc));
   ipcMain.handle("alerts:save", (_event, doc: unknown) => writeDoc("alerts", doc));
+  ipcMain.handle("paper:save", (_event, doc: unknown) => writeDoc("paper", doc));
+  ipcMain.handle("plan:save", (_event, doc: unknown) => writeDoc("plan", doc));
+  ipcMain.handle("backtest:load", (_event, file: string): Backtest | null => {
+    try {
+      if (basename(file) !== file || !BACKTEST_FILE_RE.test(file)) return null;
+      return parseBacktest(readJsonMaybe(safeDataPath("lab", "backtests", file)));
+    } catch {
+      return null;
+    }
+  });
   ipcMain.handle("briefs:list", () => listBriefs());
   ipcMain.handle("brief:load", (_event, file: string) => {
     try {
@@ -737,12 +805,43 @@ app.whenReady().then(() => {
     }
     const graded = await runScript(GRADE_IDEAS_SCRIPT, [], event, "monitor");
     if (!graded.ok) notes.push(`idea grading failed: ${graded.error}`);
+    const marked = await runScript(PAPER_MARK_SCRIPT, [], event, "monitor");
+    if (!marked.ok) notes.push(`paper marking failed: ${marked.error}`);
     return {
       ok: true,
       output: notes.length > 0 ? `${fetched.output ?? ""} (${notes.join("; ")})` : fetched.output,
     };
   });
   ipcMain.handle("digest:start", (event) => runScript(DIGEST_SCRIPT, [], event, "digest"));
+  ipcMain.handle(
+    "backtest:start",
+    (
+      event,
+      config: { preset?: string; tickers?: string[]; from?: string; to?: string; costBps?: number },
+    ) => {
+      const parsed = BacktestConfigSchema.safeParse({
+        preset: config?.preset,
+        tickers: (config?.tickers ?? []).map((t) => String(t).toUpperCase().trim()),
+        from: config?.from,
+        to: config?.to || undefined,
+        costBps: config?.costBps,
+      });
+      if (!parsed.success) return Promise.resolve({ ok: false, error: "invalid backtest config" });
+      const args = [
+        "--preset",
+        parsed.data.preset,
+        "--tickers",
+        parsed.data.tickers.join(","),
+        "--from",
+        parsed.data.from,
+        "--costBps",
+        String(parsed.data.costBps),
+      ];
+      if (parsed.data.to) args.push("--to", parsed.data.to);
+      return runScript(BACKTEST_SCRIPT, args, event, "backtest");
+    },
+  );
+  ipcMain.handle("paper:mark", (event) => runScript(PAPER_MARK_SCRIPT, [], event, "paper"));
 
   // ---- Plaid (read-only broker sync) ----
   ipcMain.handle("plaid:link", async () => {

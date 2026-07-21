@@ -9,9 +9,12 @@ import {
   parseAlerts,
   parseBrief,
   parseDigest,
+  parseBacktest,
   parseIdeas,
   parseIps,
   parseMeta,
+  parsePaper,
+  parsePlan,
   parsePortfolio,
   parseWatchlist,
   parseXray,
@@ -92,6 +95,39 @@ describe("defaults-filling parsers tolerate empty/partial input", () => {
     expect(() =>
       parseXray({ drift: [{ label: "B", targetPct: 0, actualPct: 0, driftPct: Infinity }] }),
     ).toThrow();
+  });
+
+  it("lab schemas: bounded numerics and hostile input rejected", () => {
+    expect(() =>
+      parseBacktest({
+        id: "x",
+        config: { preset: "buy-and-hold", tickers: ["SPY"], from: "2015-01-01" },
+        metrics: { cagrPct: Infinity, sharpe: 0, maxDrawdownPct: 0, trades: 0, totalReturnPct: 0 },
+        benchmarkMetrics: { cagrPct: 0, sharpe: 0, maxDrawdownPct: 0, trades: 0, totalReturnPct: 0 },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseBacktest({
+        id: "x",
+        config: { preset: "not-a-preset", tickers: ["SPY"], from: "2015-01-01" },
+        metrics: { cagrPct: 0, sharpe: 0, maxDrawdownPct: 0, trades: 0, totalReturnPct: 0 },
+        benchmarkMetrics: { cagrPct: 0, sharpe: 0, maxDrawdownPct: 0, trades: 0, totalReturnPct: 0 },
+      }),
+    ).toThrow();
+    expect(parsePaper({}).startCash).toBe(100_000);
+    expect(() =>
+      parsePaper({ orders: [{ id: "o", at: "x", ticker: "../E", side: "buy", shares: 1 }] }),
+    ).toThrow();
+    expect(parsePlan({}).rebalanceBandPct).toBe(5);
+    expect(() => parsePlan({ dca: { amount: 100, dayOfMonth: 31 } })).toThrow();
+  });
+
+  it("plan alerts parse without ticker/accession; filings still validate", () => {
+    const a = parseAlerts({
+      alerts: [{ id: "plan-dca-2026-07", kind: "plan", form: "PLAN", filedAt: "2026-07-20" }],
+    });
+    expect(a.alerts[0].kind).toBe("plan");
+    expect(a.alerts[0].ticker).toBeUndefined();
   });
 
   it("ideas are capped and returns must be finite", () => {

@@ -11,6 +11,8 @@ beforeEach(() => {
       xray: { running: false, phase: "", progress: 0 },
       monitor: { running: false, phase: "", progress: 0 },
       digest: { running: false, phase: "", progress: 0 },
+      backtest: { running: false, phase: "", progress: 0 },
+      paper: { running: false, phase: "", progress: 0 },
     },
   });
 });

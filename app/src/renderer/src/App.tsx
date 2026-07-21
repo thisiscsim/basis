@@ -4,6 +4,7 @@ import { SideRail } from "./components/SideRail";
 import { DigestView } from "./components/DigestView";
 import { ResearchView } from "./components/ResearchView";
 import { CoachView } from "./components/CoachView";
+import { LabView } from "./components/LabView";
 import { useApp, type AppTab, type Notice, type PanelId } from "./store";
 
 // The shell re-renders on panel resize, notices, etc. These panels take no
@@ -55,6 +56,16 @@ export function App(): JSX.Element {
               digest: res.digest ?? null,
               briefs: res.briefs ?? [],
               ideas: res.ideas ?? { version: 1, ideas: [] },
+              paper: res.paper ?? {
+                version: 1,
+                startCash: 100_000,
+                cash: 100_000,
+                positions: [],
+                orders: [],
+                equity: [],
+              },
+              plan: res.plan ?? { version: 1, rebalanceBandPct: 5 },
+              backtests: res.backtests ?? [],
             });
           } else {
             setLoadError(res?.error ?? "unknown error");
@@ -107,6 +118,8 @@ function TabBody({ tab }: { tab: AppTab }): JSX.Element {
       return <ResearchView />;
     case "coach":
       return <CoachView />;
+    case "lab":
+      return <LabView />;
     default: {
       const exhaustive: never = tab;
       return exhaustive;

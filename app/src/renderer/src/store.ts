@@ -1,8 +1,19 @@
 import { create } from "zustand";
-import type { Alerts, Brief, Digest, Ideas, Ips, Portfolio, Watchlist, Xray } from "@basis/schema";
-import type { BriefSummary, ChatMessage } from "../../preload";
+import type {
+  Alerts,
+  Brief,
+  Digest,
+  Ideas,
+  Ips,
+  PaperAccount,
+  Plan,
+  Portfolio,
+  Watchlist,
+  Xray,
+} from "@basis/schema";
+import type { BacktestSummary, BriefSummary, ChatMessage } from "../../preload";
 
-export type AppTab = "digest" | "research" | "coach";
+export type AppTab = "digest" | "research" | "coach" | "lab";
 export type Theme = "dark" | "light";
 
 const THEME_KEY = "basis:theme";
@@ -74,6 +85,9 @@ export interface AppData {
   digest: Digest | null;
   briefs: BriefSummary[];
   ideas: Ideas;
+  paper: PaperAccount;
+  plan: Plan;
+  backtests: BacktestSummary[];
 }
 
 export interface ChatEntry extends ChatMessage {
@@ -88,7 +102,7 @@ export interface Notice {
 }
 let noticeSeq = 0;
 
-export type JobId = "brief" | "xray" | "monitor" | "digest";
+export type JobId = "brief" | "xray" | "monitor" | "digest" | "backtest" | "paper";
 
 export interface JobState {
   running: boolean;
@@ -129,6 +143,8 @@ interface AppState {
   saveIps: (doc: Ips) => Promise<void>;
   saveWatchlist: (doc: Watchlist) => Promise<void>;
   saveAlerts: (doc: Alerts) => Promise<void>;
+  savePaper: (doc: PaperAccount) => Promise<void>;
+  savePlan: (doc: Plan) => Promise<void>;
 
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
@@ -176,7 +192,14 @@ export const useApp = create<AppState>()((set, get) => ({
   theme: initialTheme(),
   panelSizes: initialPanelSizes(),
 
-  jobs: { brief: idleJob(), xray: idleJob(), monitor: idleJob(), digest: idleJob() },
+  jobs: {
+    brief: idleJob(),
+    xray: idleJob(),
+    monitor: idleJob(),
+    digest: idleJob(),
+    backtest: idleJob(),
+    paper: idleJob(),
+  },
 
   chat: [],
   chatStreaming: false,
@@ -214,6 +237,18 @@ export const useApp = create<AppState>()((set, get) => ({
     if (!data) return;
     set({ data: { ...data, alerts: doc } });
     await persistDoc(() => window.api?.saveAlerts(doc), "alerts");
+  },
+  savePaper: async (doc) => {
+    const { data } = get();
+    if (!data) return;
+    set({ data: { ...data, paper: doc } });
+    await persistDoc(() => window.api?.savePaper(doc), "paper account");
+  },
+  savePlan: async (doc) => {
+    const { data } = get();
+    if (!data) return;
+    set({ data: { ...data, plan: doc } });
+    await persistDoc(() => window.api?.savePlan(doc), "plan");
   },
 
   setTheme: (theme) => {

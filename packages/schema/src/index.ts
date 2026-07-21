@@ -1,15 +1,31 @@
 import {
   AlertsSchema,
+  BacktestSchema,
   BriefSchema,
   DigestSchema,
   IdeasSchema,
   IpsSchema,
   MetaSchema,
+  PaperAccountSchema,
+  PlanSchema,
   PortfolioSchema,
   WatchlistSchema,
   XraySchema,
 } from "./schema.js";
-import type { Alerts, Brief, Digest, Ideas, Ips, Meta, Portfolio, Watchlist, Xray } from "./types.js";
+import type {
+  Alerts,
+  Backtest,
+  Brief,
+  Digest,
+  Ideas,
+  Ips,
+  Meta,
+  PaperAccount,
+  Plan,
+  Portfolio,
+  Watchlist,
+  Xray,
+} from "./types.js";
 
 export * from "./schema.js";
 export * from "./types.js";
@@ -52,6 +68,18 @@ export function parseXray(input: unknown): Xray {
 
 export function parseIdeas(input: unknown): Ideas {
   return IdeasSchema.parse(input ?? {});
+}
+
+export function parseBacktest(input: unknown): Backtest {
+  return BacktestSchema.parse(input);
+}
+
+export function parsePaper(input: unknown): PaperAccount {
+  return PaperAccountSchema.parse(input ?? {});
+}
+
+export function parsePlan(input: unknown): Plan {
+  return PlanSchema.parse(input ?? {});
 }
 
 export interface BriefParseResult {

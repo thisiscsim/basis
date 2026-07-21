@@ -7,6 +7,24 @@ versions.
 
 ## [Unreleased]
 
+### Added (Phase 4 — the Lab)
+
+- **Backtest copilot** — a pure, preset-based engine (`lib/backtest.mjs`:
+  buy-and-hold, DCA-monthly, 200-day trend, momentum rotation) with explicit
+  trading costs, time-weighted returns, and no lookahead by construction;
+  every run is compared against buy-and-hold of the same tickers and ships
+  with deterministic honesty warnings plus an optional LLM bias audit
+  (lookahead/survivorship/overfitting review — the model never generates
+  signals). Results land in `lab/backtests/` and render with an equity
+  sparkline in the new **Lab** tab.
+- **Paper-trading gauntlet** (`paper.json`) — $100k of pretend money; orders
+  fill at the *next* day's close (same-day fills would be lookahead), equity
+  is marked vs buy-and-hold SPY, and the UI tracks day N of the 180-day
+  gauntlet. Marking runs on Update filings and on demand.
+- **Plan reminders** (`plan.json`) — the no-execution "boring bots": a
+  monthly DCA nudge and an IPS drift-band check appended to the alerts inbox
+  by the monitor (once per month / at most weekly, cursor-tracked).
+
 ### Added (Phase 3 — discipline layer)
 
 - **Price layer** (`lib/prices.mjs`) — daily closes from Yahoo Finance (free, no key)
