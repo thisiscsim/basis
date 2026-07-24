@@ -22,6 +22,7 @@ function seedData(): AppData {
       savingsMonthly: [],
     },
     goals: { version: 1, goals: [] },
+    playbooks: [],
     lifeplan: null,
     paper: { version: 1, startCash: 100_000, cash: 100_000, positions: [], orders: [], equity: [] },
     plan: { version: 1, rebalanceBandPct: 5 },
@@ -45,6 +46,7 @@ beforeEach(() => {
       backtest: { running: false, phase: "", progress: 0 },
       paper: { running: false, phase: "", progress: 0 },
       lifeplan: { running: false, phase: "", progress: 0 },
+      playbook: { running: false, phase: "", progress: 0 },
     },
   });
 });

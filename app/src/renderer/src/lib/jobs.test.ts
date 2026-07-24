@@ -14,6 +14,7 @@ beforeEach(() => {
       backtest: { running: false, phase: "", progress: 0 },
       paper: { running: false, phase: "", progress: 0 },
       lifeplan: { running: false, phase: "", progress: 0 },
+      playbook: { running: false, phase: "", progress: 0 },
     },
   });
 });

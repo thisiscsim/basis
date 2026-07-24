@@ -120,6 +120,8 @@ export function PlanView(): JSX.Element {
         </div>
       </section>
 
+      <PlaybooksCard />
+
       {lifeplan ? (
         <PlanResult plan={lifeplan} />
       ) : (
@@ -134,6 +136,141 @@ export function PlanView(): JSX.Element {
 
       {editing === "finances" && <FinancesModal onClose={() => setEditing(null)} />}
       {editing === "goals" && <GoalsModal onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+/**
+ * Playbooks: distilled, cited principle sets from books/notes the user drops
+ * in. The cited plan grounds every step in these.
+ */
+function PlaybooksCard(): JSX.Element {
+  const playbooks = useApp((s) => s.data?.playbooks ?? []);
+  const job = useApp((s) => s.jobs.playbook);
+  const pushNotice = useApp((s) => s.pushNotice);
+  const reloadData = useApp((s) => s.reloadData);
+  const [sources, setSources] = useState<string[]>([]);
+  const [browsing, setBrowsing] = useState<string | null>(null);
+
+  useEffect(() => {
+    window.api
+      ?.listPlaybookSources()
+      .then(setSources)
+      .catch(() => {});
+  }, [playbooks.length, job.running]);
+
+  const importSource = async () => {
+    const res = await window.api.importPlaybookSource();
+    if (res.ok && res.file) {
+      setSources((prev) => (prev.includes(res.file!) ? prev : [...prev, res.file!]));
+      pushNotice("info", `Imported ${res.file}. Now distill it into a playbook.`);
+    } else if (!res.canceled && res.error) {
+      pushNotice("error", res.error);
+    }
+  };
+
+  const extractedFor = (file: string) => playbooks.find((pb) => pb.sourceFile === file);
+  const browsingPb = browsing ? playbooks.find((pb) => pb.id === browsing) : null;
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2 className="card-title">Playbooks</h2>
+        <span className="card-head-meta">your sources, distilled with verified quotes</span>
+      </div>
+      <p className="muted small">
+        Drop in a book or your own notes (PDF/EPUB/txt/md — e.g. your copy of "I Will Teach You To Be Rich").
+        Basis distills it into cited principles; the plan then grounds every step in them. Sources stay local
+        and are never uploaded anywhere except your model provider, in excerpts.
+      </p>
+      <div className="lab-form">
+        <Button variant="secondary" size="sm" icon="arrow-out-of-box" onClick={() => void importSource()}>
+          Import source…
+        </Button>
+      </div>
+      {(sources.length > 0 || playbooks.length > 0) && (
+        <div className="clip-list clip-list-capped">
+          {sources.map((file) => {
+            const pb = extractedFor(file);
+            const partial = pb && pb.chunksDone < pb.chunksTotal;
+            return (
+              <div key={file} className="clip-row" title={file}>
+                <span className="name">
+                  {file}
+                  {pb
+                    ? ` — ${pb.principles.length} principle${pb.principles.length === 1 ? "" : "s"}${
+                        partial ? ` (part ${pb.chunksDone}/${pb.chunksTotal})` : ""
+                      }${pb.droppedPrinciples ? `, ${pb.droppedPrinciples} dropped` : ""}`
+                    : " — not distilled yet"}
+                </span>
+                {pb && pb.principles.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => setBrowsing(pb.id)}>
+                    Browse
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={job.running || (pb != null && !partial)}
+                  onClick={() => {
+                    void runJob("playbook", () => window.api.startPlaybook(file)).then(() => reloadData());
+                  }}
+                >
+                  {job.running
+                    ? job.phase || "Distilling…"
+                    : pb
+                      ? partial
+                        ? "Continue"
+                        : "Done"
+                      : "Distill"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {job.running && (
+        <div className="bar job-bar" aria-hidden>
+          <div className="bar-fill" style={{ width: `${job.progress}%` }} />
+        </div>
+      )}
+      {browsingPb && <PrinciplesModal playbook={browsingPb} onClose={() => setBrowsing(null)} />}
+    </section>
+  );
+}
+
+function PrinciplesModal({
+  playbook,
+  onClose,
+}: {
+  playbook: NonNullable<ReturnType<typeof useApp.getState>["data"]>["playbooks"][number];
+  onClose: () => void;
+}): JSX.Element {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="gate-card principles-card" onClick={(e) => e.stopPropagation()}>
+        <h2 className="gate-title">{playbook.title || playbook.id}</h2>
+        <p className="muted small">
+          {playbook.principles.length} principles, every quote verified verbatim against the source.
+        </p>
+        <div className="principle-list">
+          {playbook.principles.map((p) => (
+            <div key={p.id} className="claim">
+              <p className="claim-text">
+                <Badge variant="neutral">{p.topic}</Badge> {p.text}
+              </p>
+              <blockquote className="claim-quote">
+                "{p.quote}"<span className="muted small">{p.location ? ` — ${p.location}` : ""}</span>
+              </blockquote>
+            </div>
+          ))}
+        </div>
+        <div className="gate-actions">
+          <Button variant="primary" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -212,14 +349,14 @@ function PlanResult({ plan }: { plan: LifePlan }): JSX.Element {
               <span className="card-head-meta">grounded in {plan.playbooksUsed.join(", ")}</span>
             )}
           </div>
+          {plan.narrative && <p className="brief-summary">{plan.narrative}</p>}
           {plan.steps.map((step, i) => (
-            <div key={i} className="digest-bullet">
-              <div className="digest-bullet-title">
-                {i + 1}. {step.title}
-              </div>
-              {step.body && <p className="digest-bullet-body">{step.body}</p>}
-            </div>
+            <PlanStepRow key={i} index={i} step={step} />
           ))}
+          <p className="muted small">
+            Every step cites a principle from your playbooks (click a citation to see the verified quote);
+            steps with citations that didn't resolve were dropped.
+          </p>
         </section>
       )}
 
@@ -228,6 +365,52 @@ function PlanResult({ plan }: { plan: LifePlan }): JSX.Element {
         legal specifics vary; verify anything load-bearing with a professional. Basis never moves money.
       </p>
     </>
+  );
+}
+
+function PlanStepRow({ index, step }: { index: number; step: LifePlan["steps"][number] }): JSX.Element {
+  const playbooks = useApp((s) => s.data?.playbooks ?? []);
+  const [openCitation, setOpenCitation] = useState<number | null>(null);
+  const resolve = (c: { playbookId: string; principleId: string }) => {
+    const pb = playbooks.find((p) => p.id === c.playbookId);
+    const principle = pb?.principles.find((p) => p.id === c.principleId);
+    return pb && principle ? { pb, principle } : null;
+  };
+  return (
+    <div className="digest-bullet">
+      <div className="digest-bullet-title">
+        {index + 1}. {step.title}
+        {step.citations.map((c, ci) => {
+          const resolved = resolve(c);
+          if (!resolved) return null;
+          return (
+            <button
+              key={ci}
+              className="citation-chip"
+              title={`${resolved.pb.title || resolved.pb.id} — click for the quote`}
+              onClick={() => setOpenCitation(openCitation === ci ? null : ci)}
+            >
+              [{ci + 1}]
+            </button>
+          );
+        })}
+      </div>
+      {step.body && <p className="digest-bullet-body">{step.body}</p>}
+      {openCitation != null &&
+        (() => {
+          const resolved = resolve(step.citations[openCitation]);
+          if (!resolved) return null;
+          return (
+            <blockquote className="claim-quote">
+              "{resolved.principle.quote}"
+              <span className="muted small">
+                — {resolved.pb.title || resolved.pb.id}
+                {resolved.principle.location ? `, ${resolved.principle.location}` : ""}
+              </span>
+            </blockquote>
+          );
+        })()}
+    </div>
   );
 }
 

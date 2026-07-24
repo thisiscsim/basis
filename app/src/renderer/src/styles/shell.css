@@ -1196,6 +1196,35 @@
   opacity: 0.45;
 }
 
+.citation-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border: 0.5px solid var(--border-secondary);
+  border-radius: 999px;
+  background: var(--background-secondary);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--foreground-accent);
+  cursor: pointer;
+}
+
+.citation-chip:hover {
+  border-color: var(--foreground-accent);
+}
+
+.principles-card {
+  width: 620px;
+}
+
+.principle-list {
+  max-height: 440px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .networth-zero {
   stroke: var(--foreground-danger);
   stroke-width: 0.75;

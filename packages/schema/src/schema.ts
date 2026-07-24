@@ -472,6 +472,44 @@ export const GoalsSchema = z.object({
   goals: z.array(GoalSchema).max(50).default([]),
 });
 
+/**
+ * One distilled principle from a user-provided source. Same citation
+ * discipline as briefs: `quote` must be a verbatim excerpt of the source
+ * text — playbook-llm.mjs verifies it and drops unverified principles.
+ */
+export const PrincipleSchema = z.object({
+  id: z.string().min(1).max(64),
+  topic: z
+    .enum(["spending", "debt", "saving", "investing", "goals", "income", "psychology", "other"])
+    .default("other"),
+  /** The distilled, actionable principle in plain words. */
+  text: z.string().min(1).max(500),
+  /** Exact quote from the source backing this principle. */
+  quote: z.string().min(1).max(1500),
+  /** Where in the source ("part 3 of 24"). */
+  location: z.string().max(128).optional(),
+  verified: z.boolean().default(false),
+});
+
+/**
+ * playbooks/<id>.json — a cited distillation of one user-provided source
+ * (book/notes). Sources are read locally and never redistributed.
+ */
+export const PlaybookSchema = z.object({
+  version: z.literal(1).default(1),
+  id: z.string().min(1).max(64),
+  title: z.string().max(256).default(""),
+  author: z.string().max(128).optional(),
+  sourceFile: z.string().max(256),
+  extractedAt: z.string().max(64).optional(),
+  model: z.string().max(128).optional(),
+  /** Extraction resume cursor: big books process across multiple runs. */
+  chunksTotal: z.number().int().nonnegative().max(10_000).default(0),
+  chunksDone: z.number().int().nonnegative().max(10_000).default(0),
+  droppedPrinciples: z.number().int().nonnegative().max(10_000).default(0),
+  principles: z.array(PrincipleSchema).max(200).default([]),
+});
+
 /** A signed money amount (surplus lines can be negative). */
 const signedMoney = () => z.number().finite().min(-1e12).max(1e12);
 

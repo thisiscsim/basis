@@ -11,6 +11,7 @@ import type {
   LifePlan,
   PaperAccount,
   Plan,
+  Playbook,
   Portfolio,
   Watchlist,
   Xray,
@@ -92,6 +93,7 @@ export interface AppData {
   graph: Graph;
   finances: Finances;
   goals: Goals;
+  playbooks: Playbook[];
   lifeplan: LifePlan | null;
   paper: PaperAccount;
   plan: Plan;
@@ -110,7 +112,7 @@ export interface Notice {
 }
 let noticeSeq = 0;
 
-export type JobId = "brief" | "xray" | "monitor" | "digest" | "backtest" | "paper" | "lifeplan";
+export type JobId = "brief" | "xray" | "monitor" | "digest" | "backtest" | "paper" | "lifeplan" | "playbook";
 
 export interface JobState {
   running: boolean;
@@ -210,6 +212,7 @@ export const useApp = create<AppState>()((set, get) => ({
     backtest: idleJob(),
     paper: idleJob(),
     lifeplan: idleJob(),
+    playbook: idleJob(),
   },
 
   chat: [],

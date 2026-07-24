@@ -31,6 +31,8 @@ import type {
   PaperOrderSchema,
   PlanSchema,
   PlanStepSchema,
+  PlaybookSchema,
+  PrincipleSchema,
   ScenarioSchema,
   PortfolioSchema,
   WatchlistEntrySchema,
@@ -83,6 +85,9 @@ export type Finances = z.infer<typeof FinancesSchema>;
 
 export type Goal = z.infer<typeof GoalSchema>;
 export type Goals = z.infer<typeof GoalsSchema>;
+
+export type Principle = z.infer<typeof PrincipleSchema>;
+export type Playbook = z.infer<typeof PlaybookSchema>;
 
 export type Scenario = z.infer<typeof ScenarioSchema>;
 export type PlanStep = z.infer<typeof PlanStepSchema>;

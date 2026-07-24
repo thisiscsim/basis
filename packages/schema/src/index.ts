@@ -12,6 +12,7 @@ import {
   MetaSchema,
   PaperAccountSchema,
   PlanSchema,
+  PlaybookSchema,
   PortfolioSchema,
   WatchlistSchema,
   XraySchema,
@@ -30,6 +31,7 @@ import type {
   Meta,
   PaperAccount,
   Plan,
+  Playbook,
   Portfolio,
   Watchlist,
   Xray,
@@ -104,6 +106,10 @@ export function parseGoals(input: unknown): Goals {
 
 export function parseLifePlan(input: unknown): LifePlan {
   return LifePlanSchema.parse(input ?? {});
+}
+
+export function parsePlaybook(input: unknown): Playbook {
+  return PlaybookSchema.parse(input);
 }
 
 export interface BriefParseResult {

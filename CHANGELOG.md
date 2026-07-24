@@ -7,6 +7,20 @@ versions.
 
 ## [Unreleased]
 
+### Added (life plan — playbooks + cited steps)
+
+- **Playbooks** — drop your own copy of a book or notes (PDF/EPUB/txt/md,
+  e.g. "I Will Teach You To Be Rich") into the app; `playbook-llm.mjs`
+  distills it into actionable principles, each carrying an exact verbatim
+  quote verified against the source (unverified principles dropped). Big
+  books resume across runs (12 chunks per run). Sources stay local.
+- **Cited plan steps** — `lifeplan-llm.mjs` layers 5-10 concrete steps onto
+  the deterministic core, every step citing playbook principles by id;
+  steps with citations that don't resolve are dropped deterministically.
+  The Plan tab renders citation chips that expand to the verified quote,
+  plus a playbook browser. Falls back to the numbers-only plan without a
+  model or playbooks.
+
 ### Changed (bank connectivity)
 
 - **Teller replaces Plaid.** Teller's free developer tier (100 live
