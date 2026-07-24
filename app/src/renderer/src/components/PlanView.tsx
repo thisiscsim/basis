@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LifePlan } from "@basis/schema";
 import { useApp } from "../store";
 import { runJob } from "../lib/jobs";
@@ -16,7 +16,41 @@ const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.round(Math.abs(n)).toLo
 export function PlanView(): JSX.Element {
   const data = useApp((s) => s.data);
   const job = useApp((s) => s.jobs.lifeplan);
+  const pushNotice = useApp((s) => s.pushNotice);
+  const reloadData = useApp((s) => s.reloadData);
   const [editing, setEditing] = useState<"finances" | "goals" | null>(null);
+  const [teller, setTeller] = useState({ configured: false, linked: false });
+  const [bankBusy, setBankBusy] = useState(false);
+
+  useEffect(() => {
+    window.api
+      ?.getSettings()
+      .then((s) => setTeller({ configured: Boolean(s.tellerAppId), linked: s.tellerLinked }))
+      .catch(() => {});
+  }, [editing]); // re-check after modals close (Settings may have changed)
+
+  const bankAction = async () => {
+    if (bankBusy) return;
+    setBankBusy(true);
+    try {
+      const res = teller.linked ? await window.api.tellerSync() : await window.api.tellerLink();
+      if (res.ok) {
+        setTeller((t) => ({ ...t, linked: true }));
+        await reloadData();
+        pushNotice(
+          "info",
+          `Bank sync: ${res.assets ?? 0} account${res.assets === 1 ? "" : "s"}, ${res.debts ?? 0} card${
+            res.debts === 1 ? "" : "s"
+          }${res.suggestions ? `, ${res.suggestions} recurring cost${res.suggestions === 1 ? "" : "s"} detected` : ""}. Read-only.`,
+        );
+      } else if (!res.cancelled) {
+        pushNotice("error", res.error ?? "Bank sync failed.");
+      }
+    } finally {
+      setBankBusy(false);
+    }
+  };
+
   if (!data) return <div className="surface" />;
   const { finances, goals, lifeplan } = data;
 
@@ -48,6 +82,13 @@ export function PlanView(): JSX.Element {
             sub="excl. brokerage"
           />
         </div>
+        {finances.measuredMonthlySpend != null && (
+          <p className="muted small">
+            Declared fixed costs: {money(finances.fixedMonthly.reduce((s, r) => s + r.amount, 0))}/mo · your
+            accounts show ~{money(finances.measuredMonthlySpend)}/mo of actual spending
+            {finances.lastSyncedAt ? ` (synced ${relativeTime(finances.lastSyncedAt)})` : ""}.
+          </p>
+        )}
         <div className="lab-form">
           <Button variant="secondary" size="sm" icon="input-form" onClick={() => setEditing("finances")}>
             Edit finances
@@ -55,6 +96,17 @@ export function PlanView(): JSX.Element {
           <Button variant="secondary" size="sm" icon="input-form" onClick={() => setEditing("goals")}>
             Edit goals ({goals.goals.length})
           </Button>
+          {teller.configured && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="arrow-rotate"
+              disabled={bankBusy}
+              onClick={() => void bankAction()}
+            >
+              {bankBusy ? "Syncing…" : teller.linked ? "Sync banks" : "Connect bank"}
+            </Button>
+          )}
           <Button
             variant="primary"
             size="sm"

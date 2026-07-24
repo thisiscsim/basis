@@ -52,14 +52,13 @@ import {
   type Xray,
 } from "@basis/schema";
 import {
-  createLinkToken,
-  exchangePublicToken,
-  fetchHoldings,
-  openLinkWindow,
-  type PlaidConfig,
-  removeItem,
-} from "./plaid";
-import { mapPlaidHoldings } from "./plaid-map";
+  fetchAccounts,
+  fetchBalance,
+  fetchTransactions,
+  openConnectWindow,
+  type TellerConfig,
+} from "./teller";
+import { detectRecurring, mapTellerAccounts } from "./teller-map";
 import { type ChatMessage, type ChatMode, evaluateGate, llmInfo, streamChat, type CoachContext } from "./llm";
 
 // In dev (electron-vite) __dirname is <repo>/app/out/main, so the repo root is
@@ -132,7 +131,7 @@ loadLocalEnv();
 // ---- Persistent app settings ----
 export type ReasoningEffort = "low" | "medium" | "high";
 export type PricesProvider = "yahoo" | "tiingo";
-export type PlaidEnvName = "sandbox" | "production";
+export type TellerEnvName = "sandbox" | "development" | "production";
 interface AppSettings {
   /** User-chosen root folder for Basis data (default ~/Documents/Basis). */
   homeDir?: string;
@@ -145,34 +144,31 @@ interface AppSettings {
   /** Daily-close price data: free Yahoo Finance by default, keyed Tiingo optionally. */
   pricesProvider: PricesProvider;
   pricesApiKey?: string;
-  /** Read-only Plaid Investments sync (the user's own Plaid credentials). */
-  plaidClientId?: string;
-  plaidSecret?: string;
-  plaidEnv: PlaidEnvName;
-  plaidAccessToken?: string;
+  /** Read-only Teller bank sync (the user's own Teller application id). */
+  tellerAppId?: string;
+  tellerEnv: TellerEnvName;
+  /** Client-cert paths for Teller development/production (sandbox needs none). */
+  tellerCertPath?: string;
+  tellerKeyPath?: string;
+  tellerAccessToken?: string;
 }
 /**
  * The renderer never needs raw key values — only whether a key is set — so we
  * strip them at the IPC boundary. Keeping the plaintext main-side means a
  * renderer compromise can't read them over `settings:get`.
  */
-type PublicSettings = Omit<
-  AppSettings,
-  "agentApiKey" | "pricesApiKey" | "plaidSecret" | "plaidAccessToken"
-> & {
+type PublicSettings = Omit<AppSettings, "agentApiKey" | "pricesApiKey" | "tellerAccessToken"> & {
   hasAgentKey: boolean;
   hasPricesKey: boolean;
-  hasPlaidCredentials: boolean;
-  plaidLinked: boolean;
+  tellerLinked: boolean;
 };
 function publicSettings(s: AppSettings): PublicSettings {
-  const { agentApiKey, pricesApiKey, plaidSecret, plaidAccessToken, ...rest } = s;
+  const { agentApiKey, pricesApiKey, tellerAccessToken, ...rest } = s;
   return {
     ...rest,
     hasAgentKey: Boolean(agentApiKey),
     hasPricesKey: Boolean(pricesApiKey),
-    hasPlaidCredentials: Boolean(s.plaidClientId && plaidSecret),
-    plaidLinked: Boolean(plaidAccessToken),
+    tellerLinked: Boolean(tellerAccessToken),
   };
 }
 const SETTINGS_PATH = join(app.getPath("userData"), "settings.json");
@@ -194,10 +190,11 @@ function readSettings(): AppSettings {
     edgarContact: str(s.edgarContact),
     pricesProvider: oneOf(s.pricesProvider, ["yahoo", "tiingo"] as const, "yahoo"),
     pricesApiKey: str(s.pricesApiKey),
-    plaidClientId: str(s.plaidClientId),
-    plaidSecret: str(s.plaidSecret),
-    plaidEnv: oneOf(s.plaidEnv, ["sandbox", "production"] as const, "sandbox"),
-    plaidAccessToken: str(s.plaidAccessToken),
+    tellerAppId: str(s.tellerAppId),
+    tellerEnv: oneOf(s.tellerEnv, ["sandbox", "development", "production"] as const, "sandbox"),
+    tellerCertPath: str(s.tellerCertPath),
+    tellerKeyPath: str(s.tellerKeyPath),
+    tellerAccessToken: str(s.tellerAccessToken),
   };
 }
 function writeSettings(patch: Partial<AppSettings>): AppSettings {
@@ -713,25 +710,74 @@ function recordDecision(input: { trade?: unknown; verdict?: unknown; argument?: 
   }
 }
 
-// ---- Plaid (read-only broker sync) ----
-function plaidConfig(): PlaidConfig | null {
+// ---- Teller (read-only bank sync) ----
+function tellerConfig(): TellerConfig | null {
   const s = readSettings();
-  if (!s.plaidClientId || !s.plaidSecret) return null;
-  return { clientId: s.plaidClientId, secret: s.plaidSecret, env: s.plaidEnv };
+  if (!s.tellerAppId) return null;
+  return {
+    applicationId: s.tellerAppId,
+    env: s.tellerEnv,
+    certPath: s.tellerCertPath,
+    keyPath: s.tellerKeyPath,
+  };
 }
 
-async function plaidSync(): Promise<{ ok: boolean; imported?: number; skipped?: number; error?: string }> {
-  const cfg = plaidConfig();
-  const token = readSettings().plaidAccessToken;
-  if (!cfg) return { ok: false, error: "Add your Plaid client ID + secret in Settings first." };
-  if (!token) return { ok: false, error: "No broker linked yet — use Connect broker first." };
+/**
+ * Sync bank accounts into finances.json: balances become cash-asset /
+ * credit-card-debt rows (source "bank", replaced wholesale), and ~90 days of
+ * transactions feed recurring-fixed-cost suggestions plus the measured
+ * monthly spend (the declared-vs-measured honesty number).
+ */
+async function tellerSync(): Promise<{
+  ok: boolean;
+  assets?: number;
+  debts?: number;
+  suggestions?: number;
+  error?: string;
+}> {
+  const cfg = tellerConfig();
+  const token = readSettings().tellerAccessToken;
+  if (!cfg) return { ok: false, error: "Add your Teller application id in Settings first." };
+  if (!token) return { ok: false, error: "No bank linked yet — use Connect bank first." };
   try {
-    const resp = await fetchHoldings(cfg, token);
-    const existing = parsePortfolio(readJsonMaybe(join(DATA_DIR, "portfolio.json")));
-    const { portfolio, imported, skipped } = mapPlaidHoldings(resp, existing);
-    const write = writeDoc("portfolio", portfolio);
+    const accounts = await fetchAccounts(cfg, token);
+    const balances = new Map(
+      await Promise.all(accounts.map(async (a) => [a.id, await fetchBalance(cfg, token, a.id)] as const)),
+    );
+    const existing = parseFinances(readJsonMaybe(join(DATA_DIR, "finances.json")));
+    const mapped = mapTellerAccounts(accounts, balances, existing);
+
+    // Recurring detection over ~90 days of transactions on all accounts.
+    const cutoff = new Date(Date.now() - 90 * 24 * 3600_000).toISOString().slice(0, 10);
+    const allTx: Parameters<typeof detectRecurring>[0] = [];
+    for (const account of accounts) {
+      try {
+        const txs = await fetchTransactions(cfg, token, account.id);
+        for (const tx of txs) {
+          if (tx.date >= cutoff && tx.status !== "pending") allTx.push({ tx, accountType: account.type });
+        }
+      } catch {
+        // transactions are an enhancement; balances already landed
+      }
+    }
+    const { suggestions, measuredMonthlySpend } = detectRecurring(allTx);
+    const manualLabels = new Set(mapped.finances.fixedMonthly.map((r) => r.label.toLowerCase()));
+    const suggestedRows = suggestions
+      .filter((sug) => !manualLabels.has(sug.label.toLowerCase()))
+      .slice(0, Math.max(0, 100 - mapped.finances.fixedMonthly.length))
+      .map((sug) => ({ label: sug.label.slice(0, 64), amount: sug.amount, source: "bank" as const }));
+    const finances = {
+      ...mapped.finances,
+      fixedMonthly: [
+        ...mapped.finances.fixedMonthly.filter((r) => r.source !== "bank"),
+        ...suggestedRows,
+      ].slice(0, 100),
+      measuredMonthlySpend: measuredMonthlySpend > 0 ? measuredMonthlySpend : undefined,
+    };
+
+    const write = writeDoc("finances", finances);
     if (!write.ok) return { ok: false, error: write.error };
-    return { ok: true, imported, skipped };
+    return { ok: true, assets: mapped.assets, debts: mapped.debts, suggestions: suggestedRows.length };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -872,37 +918,27 @@ app.whenReady().then(() => {
   ipcMain.handle("paper:mark", (event) => runScript(PAPER_MARK_SCRIPT, [], event, "paper"));
   ipcMain.handle("lifeplan:start", (event) => runScript(LIFEPLAN_SCRIPT, [], event, "lifeplan"));
 
-  // ---- Plaid (read-only broker sync) ----
-  ipcMain.handle("plaid:link", async () => {
-    const cfg = plaidConfig();
-    if (!cfg) return { ok: false, error: "Add your Plaid client ID + secret in Settings first." };
+  // ---- Teller (read-only bank sync) ----
+  ipcMain.handle("teller:link", async () => {
+    const cfg = tellerConfig();
+    if (!cfg) return { ok: false, error: "Add your Teller application id in Settings first." };
     try {
-      const linkToken = await createLinkToken(cfg);
-      const result = await openLinkWindow(linkToken, mainWindow);
-      if (!result.ok || !result.publicToken) {
+      const result = await openConnectWindow(cfg, mainWindow);
+      if (!result.ok || !result.accessToken) {
         return result.cancelled ? { ok: false, cancelled: true } : { ok: false, error: result.error };
       }
-      const accessToken = await exchangePublicToken(cfg, result.publicToken);
-      writeSettings({ plaidAccessToken: accessToken });
-      // First sync immediately so the link button visibly does something.
-      return await plaidSync();
+      writeSettings({ tellerAccessToken: result.accessToken });
+      // First sync immediately so the connect button visibly does something.
+      return await tellerSync();
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
-  ipcMain.handle("plaid:sync", () => plaidSync());
-  ipcMain.handle("plaid:unlink", async () => {
-    const cfg = plaidConfig();
-    const token = readSettings().plaidAccessToken;
-    if (cfg && token) {
-      try {
-        await removeItem(cfg, token);
-      } catch (err) {
-        // Best-effort: clear our token even if Plaid's side fails.
-        logger.warn(`plaid item remove failed: ${String(err)}`);
-      }
-    }
-    writeSettings({ plaidAccessToken: undefined });
+  ipcMain.handle("teller:sync", () => tellerSync());
+  ipcMain.handle("teller:unlink", () => {
+    // Teller enrollments are revoked from the bank's side / Teller dashboard;
+    // locally we drop the token so Basis can no longer read anything.
+    writeSettings({ tellerAccessToken: undefined });
     return { ok: true };
   });
 

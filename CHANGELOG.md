@@ -7,6 +7,26 @@ versions.
 
 ## [Unreleased]
 
+### Changed (bank connectivity)
+
+- **Teller replaces Plaid.** Teller's free developer tier (100 live
+  connections, no-certificate sandbox) fits a single-player app far better
+  than Plaid's 10-item trial, and its accounts/balances/transactions API
+  feeds the life plan directly. Plaid Investments (and with it brokerage-
+  position syncing) is removed — portfolio holdings return to manual entry.
+  Teller Connect runs in the same isolated window pattern; mTLS client
+  certificates (development/production) load from user-configured paths;
+  only read endpoints are ever called.
+
+### Added (life plan — bank ingestion)
+
+- **Bank sync into the snapshot** — depository balances become cash-asset
+  rows and credit accounts become credit-card debt rows (`source: "bank"`,
+  replaced wholesale on sync; manual rows and user-entered APR/minimum terms
+  survive). ~90 days of transactions drive recurring-fixed-cost suggestions
+  (same-merchant, stable-amount, monthly cadence) and the measured average
+  monthly spend, shown against the declared number — the honesty feature.
+
 ### Added (life plan — snapshot, goals, projections)
 
 - **Financial snapshot** (`finances.json`) — income, fixed monthly costs,
