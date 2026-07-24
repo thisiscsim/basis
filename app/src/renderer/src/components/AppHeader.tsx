@@ -7,6 +7,7 @@ const TABS: { id: AppTab; label: string }[] = [
   { id: "research", label: "Research" },
   { id: "coach", label: "Coach" },
   { id: "lab", label: "Lab" },
+  { id: "plan", label: "Plan" },
 ];
 
 export function AppHeader(): JSX.Element {

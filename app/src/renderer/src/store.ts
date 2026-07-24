@@ -3,9 +3,12 @@ import type {
   Alerts,
   Brief,
   Digest,
+  Finances,
+  Goals,
   Graph,
   Ideas,
   Ips,
+  LifePlan,
   PaperAccount,
   Plan,
   Portfolio,
@@ -14,7 +17,7 @@ import type {
 } from "@basis/schema";
 import type { BacktestSummary, BriefSummary, ChatMessage } from "../../preload";
 
-export type AppTab = "digest" | "research" | "coach" | "lab";
+export type AppTab = "digest" | "research" | "coach" | "lab" | "plan";
 export type Theme = "dark" | "light";
 
 const THEME_KEY = "basis:theme";
@@ -87,6 +90,9 @@ export interface AppData {
   briefs: BriefSummary[];
   ideas: Ideas;
   graph: Graph;
+  finances: Finances;
+  goals: Goals;
+  lifeplan: LifePlan | null;
   paper: PaperAccount;
   plan: Plan;
   backtests: BacktestSummary[];
@@ -104,7 +110,7 @@ export interface Notice {
 }
 let noticeSeq = 0;
 
-export type JobId = "brief" | "xray" | "monitor" | "digest" | "backtest" | "paper";
+export type JobId = "brief" | "xray" | "monitor" | "digest" | "backtest" | "paper" | "lifeplan";
 
 export interface JobState {
   running: boolean;
@@ -147,6 +153,8 @@ interface AppState {
   saveAlerts: (doc: Alerts) => Promise<void>;
   savePaper: (doc: PaperAccount) => Promise<void>;
   savePlan: (doc: Plan) => Promise<void>;
+  saveFinances: (doc: Finances) => Promise<void>;
+  saveGoals: (doc: Goals) => Promise<void>;
 
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
@@ -201,6 +209,7 @@ export const useApp = create<AppState>()((set, get) => ({
     digest: idleJob(),
     backtest: idleJob(),
     paper: idleJob(),
+    lifeplan: idleJob(),
   },
 
   chat: [],
@@ -251,6 +260,18 @@ export const useApp = create<AppState>()((set, get) => ({
     if (!data) return;
     set({ data: { ...data, plan: doc } });
     await persistDoc(() => window.api?.savePlan(doc), "plan");
+  },
+  saveFinances: async (doc) => {
+    const { data } = get();
+    if (!data) return;
+    set({ data: { ...data, finances: doc } });
+    await persistDoc(() => window.api?.saveFinances(doc), "finances");
+  },
+  saveGoals: async (doc) => {
+    const { data } = get();
+    if (!data) return;
+    set({ data: { ...data, goals: doc } });
+    await persistDoc(() => window.api?.saveGoals(doc), "goals");
   },
 
   setTheme: (theme) => {

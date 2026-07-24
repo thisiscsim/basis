@@ -389,6 +389,186 @@ export const PaperAccountSchema = z.object({
   benchmarkStartPrice: bounded(1e9).optional(),
 });
 
+// ---- Life plan: finances snapshot, goals, plan + projections ----
+
+/** Where a finances row came from; bank rows are replaced wholesale on sync. */
+export const MoneySourceSchema = z.enum(["manual", "bank"]);
+
+export const FixedCostSchema = z.object({
+  label: z.string().min(1).max(64),
+  amount: bounded(1e9),
+  source: MoneySourceSchema.default("manual"),
+});
+
+export const FinDebtSchema = z.object({
+  label: z.string().min(1).max(64),
+  kind: z.enum(["credit-card", "student", "auto", "mortgage", "personal", "other"]).default("other"),
+  balance: bounded(1e12),
+  /** Annual percentage rate. Payday-loan territory tops the scale on purpose. */
+  aprPct: z.number().finite().min(0).max(400).default(0),
+  minimumMonthly: bounded(1e9).default(0),
+  source: MoneySourceSchema.default("manual"),
+  accountId: z.string().max(64).optional(),
+});
+
+export const FinAssetSchema = z.object({
+  label: z.string().min(1).max(64),
+  kind: z.enum(["cash", "property", "retirement", "other"]).default("other"),
+  value: bounded(1e12),
+  source: MoneySourceSchema.default("manual"),
+  accountId: z.string().max(64).optional(),
+});
+
+/**
+ * finances.json — the declared (and later bank-ingested) financial snapshot,
+ * Conscious-Spending-Plan style. Brokerage holdings live in portfolio.json
+ * and are valued at market — not duplicated here.
+ */
+export const FinancesSchema = z.object({
+  version: z.literal(1).default(1),
+  income: z
+    .object({
+      netMonthly: bounded(1e9).default(0),
+      grossAnnual: bounded(1e10).optional(),
+    })
+    .default({}),
+  fixedMonthly: z.array(FixedCostSchema).max(100).default([]),
+  debts: z.array(FinDebtSchema).max(50).default([]),
+  assets: z.array(FinAssetSchema).max(100).default([]),
+  savingsMonthly: z
+    .array(z.object({ label: z.string().min(1).max(64), amount: bounded(1e9) }))
+    .max(50)
+    .default([]),
+  /** Measured average monthly spend from bank transactions (honesty check vs declared). */
+  measuredMonthlySpend: bounded(1e9).optional(),
+  lastSyncedAt: z.string().max(64).optional(),
+  updatedAt: z.string().max(64).optional(),
+});
+
+export const GoalSchema = z.object({
+  id: z.string().min(1).max(64),
+  label: z.string().min(1).max(128),
+  /**
+   * purchase: save toward targetAmount (optionally by targetDate);
+   * recurring: annualCost forever (trips, tuition);
+   * lifestyle: a permanent monthlyDelta (nicer apartment).
+   */
+  kind: z.enum(["purchase", "recurring", "lifestyle"]),
+  targetAmount: bounded(1e12).optional(),
+  targetDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}(-\d{2})?$/)
+    .optional(),
+  annualCost: bounded(1e10).optional(),
+  monthlyDelta: bounded(1e9).optional(),
+  /** 1 = highest. Purchase goals are funded in priority order. */
+  priority: z.number().int().min(1).max(5).default(3),
+  notes: z.string().max(500).optional(),
+});
+
+/** goals.json — what the money is actually for. */
+export const GoalsSchema = z.object({
+  version: z.literal(1).default(1),
+  goals: z.array(GoalSchema).max(50).default([]),
+});
+
+/** A signed money amount (surplus lines can be negative). */
+const signedMoney = () => z.number().finite().min(-1e12).max(1e12);
+
+export const ScenarioSchema = z.object({
+  name: z.string().min(1).max(32),
+  /** Nominal annual return assumption, percent. */
+  annualReturnPct: z.number().finite().min(-50).max(100),
+});
+
+export const PlanStepSchema = z.object({
+  title: z.string().min(1).max(128),
+  body: z.string().max(2000).default(""),
+  /** Every step must ground itself in playbook principles (validated by id). */
+  citations: z
+    .array(z.object({ playbookId: z.string().min(1).max(64), principleId: z.string().min(1).max(64) }))
+    .max(5)
+    .default([]),
+});
+
+/**
+ * lifeplan.json — the life plan. The deterministic core (surplus, debt
+ * schedule, goal feasibility, net-worth projections) is ground truth computed
+ * by lifeplan.mjs; `steps`/`narrative` are LLM-drafted and may not contradict
+ * it. Projections are assumption math, not predictions.
+ */
+export const LifePlanSchema = z.object({
+  version: z.literal(1).default(1),
+  generatedAt: z.string().max(64).optional(),
+  model: z.string().max(128).optional(),
+  assumptions: z
+    .object({
+      scenarios: z.array(ScenarioSchema).max(5).default([]),
+      inflationPct: z.number().finite().min(0).max(50).default(3),
+    })
+    .default({}),
+  surplus: z
+    .object({
+      netMonthlyIncome: signedMoney().default(0),
+      fixedMonthly: signedMoney().default(0),
+      debtMinimums: signedMoney().default(0),
+      savingsMonthly: signedMoney().default(0),
+      goalReserveMonthly: signedMoney().default(0),
+      /** What's actually left each month after all of the above. */
+      monthly: signedMoney().default(0),
+    })
+    .default({}),
+  debtSchedule: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(64),
+        monthsToPayoff: z.number().int().min(0).max(1200).optional(),
+        payoffDate: z.string().max(16).optional(),
+        interestPaid: bounded(1e12).default(0),
+        /** True when payments don't even cover interest. */
+        neverPaysOff: z.boolean().default(false),
+      }),
+    )
+    .max(50)
+    .default([]),
+  debtTotals: z
+    .object({
+      interestPaid: bounded(1e12).default(0),
+      debtFreeDate: z.string().max(16).optional(),
+    })
+    .default({}),
+  goalFunding: z
+    .array(
+      z.object({
+        goalId: z.string().min(1).max(64),
+        label: z.string().min(1).max(128),
+        scenario: z.string().min(1).max(32),
+        feasible: z.boolean(),
+        fundedBy: z.string().max(16).optional(),
+        shortfall: bounded(1e12).optional(),
+      }),
+    )
+    .max(150)
+    .default([]),
+  netWorth: z
+    .array(
+      z.object({
+        year: z.number().int().min(2000).max(2200),
+        byScenario: z
+          .array(
+            z.object({ name: z.string().min(1).max(32), value: z.number().finite().min(-1e15).max(1e15) }),
+          )
+          .max(5),
+      }),
+    )
+    .max(60)
+    .default([]),
+  steps: z.array(PlanStepSchema).max(12).default([]),
+  narrative: z.string().max(8000).optional(),
+  warnings: z.array(z.string().max(500)).max(20).default([]),
+  playbooksUsed: z.array(z.string().max(64)).max(10).default([]),
+});
+
 // ---- Knowledge graph (Phase 5) ----
 
 export const GraphRelSchema = z.enum([

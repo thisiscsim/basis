@@ -10,8 +10,11 @@ import {
   parseBrief,
   parseDigest,
   parseBacktest,
+  parseFinances,
+  parseGoals,
   parseGraph,
   parseIdeas,
+  parseLifePlan,
   parseIps,
   parseMeta,
   parsePaper,
@@ -121,6 +124,53 @@ describe("defaults-filling parsers tolerate empty/partial input", () => {
     ).toThrow();
     expect(parsePlan({}).rebalanceBandPct).toBe(5);
     expect(() => parsePlan({ dca: { amount: 100, dayOfMonth: 31 } })).toThrow();
+  });
+
+  it("finances snapshot: defaults, source tagging, hostile numerics rejected", () => {
+    const f = parseFinances({
+      income: { netMonthly: 8000 },
+      debts: [{ label: "Visa", kind: "credit-card", balance: 4200, aprPct: 24.99, minimumMonthly: 120 }],
+    });
+    expect(f.debts[0].source).toBe("manual");
+    expect(f.income.netMonthly).toBe(8000);
+    expect(() => parseFinances({ income: { netMonthly: Infinity } })).toThrow();
+    expect(() => parseFinances({ debts: [{ label: "x", balance: -5 }] })).toThrow();
+    expect(() => parseFinances({ debts: [{ label: "x", balance: 1, aprPct: 500 }] })).toThrow();
+  });
+
+  it("goals: kinds, priority bounds, date format", () => {
+    const g = parseGoals({
+      goals: [
+        {
+          id: "house",
+          label: "House down payment",
+          kind: "purchase",
+          targetAmount: 120_000,
+          targetDate: "2030-06",
+        },
+        { id: "trips", label: "3 business-class trips/yr", kind: "recurring", annualCost: 24_000 },
+      ],
+    });
+    expect(g.goals[0].priority).toBe(3);
+    expect(() => parseGoals({ goals: [{ id: "x", label: "x", kind: "purchase", priority: 6 }] })).toThrow();
+    expect(() =>
+      parseGoals({ goals: [{ id: "x", label: "x", kind: "purchase", targetDate: "June 2030" }] }),
+    ).toThrow();
+  });
+
+  it("life plan: surplus lines can be negative, projections bounded, steps cite by id", () => {
+    const p = parseLifePlan({
+      surplus: { monthly: -350 },
+      netWorth: [{ year: 2030, byScenario: [{ name: "expected", value: 250_000 }] }],
+      steps: [{ title: "Automate", citations: [{ playbookId: "iwt", principleId: "p1" }] }],
+    });
+    expect(p.surplus.monthly).toBe(-350);
+    expect(p.assumptions.inflationPct).toBe(3);
+    expect(() =>
+      parseLifePlan({ netWorth: [{ year: 2030, byScenario: [{ name: "e", value: Infinity }] }] }),
+    ).toThrow();
+    expect(() => parseLifePlan({ netWorth: [{ year: 1800, byScenario: [] }] })).toThrow();
+    expect(() => parseLifePlan({ steps: Array(13).fill({ title: "t" }) })).toThrow();
   });
 
   it("graph edges require verified-style citations and https URLs", () => {

@@ -27,14 +27,19 @@ import {
   BacktestConfigSchema,
   type Digest,
   type Ips,
+  type Finances,
+  type Goals,
   type PaperAccount,
   parseAlerts,
   parseBacktest,
   parseBrief,
   parseDigest,
+  parseFinances,
+  parseGoals,
   parseGraph,
   parseIdeas,
   parseIps,
+  parseLifePlan,
   parsePaper,
   parsePlan,
   parsePortfolio,
@@ -69,6 +74,7 @@ const DIFF_SCRIPT = join(SCRIPTS_DIR, "diff-llm.mjs");
 const DIGEST_SCRIPT = join(SCRIPTS_DIR, "digest-llm.mjs");
 const GRADE_IDEAS_SCRIPT = join(SCRIPTS_DIR, "grade-ideas.mjs");
 const GRAPH_SCRIPT = join(SCRIPTS_DIR, "graph-llm.mjs");
+const LIFEPLAN_SCRIPT = join(SCRIPTS_DIR, "lifeplan.mjs");
 const BACKTEST_SCRIPT = join(SCRIPTS_DIR, "backtest.mjs");
 const PAPER_MARK_SCRIPT = join(SCRIPTS_DIR, "paper-mark.mjs");
 
@@ -273,6 +279,8 @@ function scaffoldDataDir(): void {
       ["paper.json", parsePaper({})],
       ["plan.json", parsePlan({})],
       ["graph.json", parseGraph({})],
+      ["finances.json", parseFinances({})],
+      ["goals.json", parseGoals({})],
     ];
     for (const [file, doc] of seed) {
       const path = join(DATA_DIR, file);
@@ -451,6 +459,11 @@ function loadData() {
       briefs: listBriefs(),
       ideas: parseIdeas(readJsonMaybe(join(DATA_DIR, "ideas.json"))),
       graph: parseGraph(readJsonMaybe(join(DATA_DIR, "graph.json"))),
+      finances: parseFinances(readJsonMaybe(join(DATA_DIR, "finances.json"))),
+      goals: parseGoals(readJsonMaybe(join(DATA_DIR, "goals.json"))),
+      lifeplan: readJsonMaybe(join(DATA_DIR, "lifeplan.json"))
+        ? parseLifePlan(readJsonMaybe(join(DATA_DIR, "lifeplan.json")))
+        : null,
       paper: parsePaper(readJsonMaybe(join(DATA_DIR, "paper.json"))),
       plan: parsePlan(readJsonMaybe(join(DATA_DIR, "plan.json"))),
       backtests: listBacktests(),
@@ -470,11 +483,11 @@ function markSelfWrite(): void {
   lastSelfWrite = Date.now();
 }
 
-type DocKind = "portfolio" | "ips" | "watchlist" | "alerts" | "paper" | "plan";
+type DocKind = "portfolio" | "ips" | "watchlist" | "alerts" | "paper" | "plan" | "finances" | "goals";
 
 function writeDoc(kind: DocKind, input: unknown): { ok: boolean; error?: string } {
   try {
-    let validated: Portfolio | Ips | Watchlist | Alerts | PaperAccount | Plan;
+    let validated: Portfolio | Ips | Watchlist | Alerts | PaperAccount | Plan | Finances | Goals;
     switch (kind) {
       case "portfolio":
         validated = parsePortfolio(input);
@@ -495,6 +508,13 @@ function writeDoc(kind: DocKind, input: unknown): { ok: boolean; error?: string 
         break;
       case "plan":
         validated = parsePlan(input);
+        break;
+      case "finances":
+        validated = parseFinances(input);
+        (validated as Finances).updatedAt = new Date().toISOString();
+        break;
+      case "goals":
+        validated = parseGoals(input);
         break;
       default: {
         const exhaustive: never = kind;
@@ -762,6 +782,8 @@ app.whenReady().then(() => {
   ipcMain.handle("alerts:save", (_event, doc: unknown) => writeDoc("alerts", doc));
   ipcMain.handle("paper:save", (_event, doc: unknown) => writeDoc("paper", doc));
   ipcMain.handle("plan:save", (_event, doc: unknown) => writeDoc("plan", doc));
+  ipcMain.handle("finances:save", (_event, doc: unknown) => writeDoc("finances", doc));
+  ipcMain.handle("goals:save", (_event, doc: unknown) => writeDoc("goals", doc));
   ipcMain.handle("backtest:load", (_event, file: string): Backtest | null => {
     try {
       if (basename(file) !== file || !BACKTEST_FILE_RE.test(file)) return null;
@@ -848,6 +870,7 @@ app.whenReady().then(() => {
     },
   );
   ipcMain.handle("paper:mark", (event) => runScript(PAPER_MARK_SCRIPT, [], event, "paper"));
+  ipcMain.handle("lifeplan:start", (event) => runScript(LIFEPLAN_SCRIPT, [], event, "lifeplan"));
 
   // ---- Plaid (read-only broker sync) ----
   ipcMain.handle("plaid:link", async () => {

@@ -13,6 +13,16 @@ function seedData(): AppData {
     briefs: [],
     ideas: { version: 1, ideas: [] },
     graph: { version: 1, edges: [] },
+    finances: {
+      version: 1,
+      income: { netMonthly: 0 },
+      fixedMonthly: [],
+      debts: [],
+      assets: [],
+      savingsMonthly: [],
+    },
+    goals: { version: 1, goals: [] },
+    lifeplan: null,
     paper: { version: 1, startCash: 100_000, cash: 100_000, positions: [], orders: [], equity: [] },
     plan: { version: 1, rebalanceBandPct: 5 },
     backtests: [],
@@ -34,6 +44,7 @@ beforeEach(() => {
       digest: { running: false, phase: "", progress: 0 },
       backtest: { running: false, phase: "", progress: 0 },
       paper: { running: false, phase: "", progress: 0 },
+      lifeplan: { running: false, phase: "", progress: 0 },
     },
   });
 });

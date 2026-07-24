@@ -12,6 +12,12 @@ import type {
   DigestItemSchema,
   DigestSchema,
   DriftEntrySchema,
+  FinancesSchema,
+  FinAssetSchema,
+  FinDebtSchema,
+  FixedCostSchema,
+  GoalSchema,
+  GoalsSchema,
   GraphEdgeSchema,
   GraphRelSchema,
   GraphSchema,
@@ -19,10 +25,13 @@ import type {
   IdeaSchema,
   IdeasSchema,
   IpsSchema,
+  LifePlanSchema,
   MetaSchema,
   PaperAccountSchema,
   PaperOrderSchema,
   PlanSchema,
+  PlanStepSchema,
+  ScenarioSchema,
   PortfolioSchema,
   WatchlistEntrySchema,
   WatchlistSchema,
@@ -66,6 +75,18 @@ export type PaperOrder = z.infer<typeof PaperOrderSchema>;
 export type PaperAccount = z.infer<typeof PaperAccountSchema>;
 
 export type Plan = z.infer<typeof PlanSchema>;
+
+export type FixedCost = z.infer<typeof FixedCostSchema>;
+export type FinDebt = z.infer<typeof FinDebtSchema>;
+export type FinAsset = z.infer<typeof FinAssetSchema>;
+export type Finances = z.infer<typeof FinancesSchema>;
+
+export type Goal = z.infer<typeof GoalSchema>;
+export type Goals = z.infer<typeof GoalsSchema>;
+
+export type Scenario = z.infer<typeof ScenarioSchema>;
+export type PlanStep = z.infer<typeof PlanStepSchema>;
+export type LifePlan = z.infer<typeof LifePlanSchema>;
 
 export type GraphRel = z.infer<typeof GraphRelSchema>;
 export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
