@@ -20,10 +20,9 @@ const DEFAULTS: PublicSettings = {
   reasoningEffort: "low",
   hasAgentKey: false,
   pricesProvider: "yahoo",
-  plaidEnv: "sandbox",
+  tellerEnv: "sandbox",
   hasPricesKey: false,
-  hasPlaidCredentials: false,
-  plaidLinked: false,
+  tellerLinked: false,
 };
 
 export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
@@ -224,44 +223,51 @@ export function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element
               )}
               <Divider />
               <SettingRow
-                title="Broker sync (Plaid, read-only)"
+                title="Bank sync (Teller, read-only)"
                 sub={
-                  settings.plaidLinked
-                    ? "Broker linked. Sync from the Portfolio rail; unlink below."
-                    : "Bring your own Plaid credentials (free sandbox; Trial plan covers live use). Basis only ever reads holdings — it can never trade."
+                  settings.tellerLinked
+                    ? "Bank linked. Sync from the Plan tab; unlink below."
+                    : "Bring your own Teller application id (free developer tier: 100 connections; sandbox needs no certificate). Basis only ever reads balances and transactions — it can never move money."
                 }
               >
                 <SettingSelect
-                  value={settings.plaidEnv}
-                  onChange={(v) => void update({ plaidEnv: v as AppSettings["plaidEnv"] })}
+                  value={settings.tellerEnv}
+                  onChange={(v) => void update({ tellerEnv: v as AppSettings["tellerEnv"] })}
                   options={[
                     { value: "sandbox", label: "Sandbox" },
+                    { value: "development", label: "Development" },
                     { value: "production", label: "Production" },
                   ]}
                 />
               </SettingRow>
               <KeyRow
                 type="text"
-                placeholder={settings.plaidClientId ? settings.plaidClientId : "Plaid client ID"}
-                onSave={(v) => void update({ plaidClientId: v || undefined })}
+                placeholder={settings.tellerAppId ? settings.tellerAppId : "Teller application id"}
+                onSave={(v) => void update({ tellerAppId: v || undefined })}
               />
-              <KeyRow
-                placeholder={
-                  settings.hasPlaidCredentials
-                    ? "Plaid secret saved — enter a new one to replace it"
-                    : "Plaid secret"
-                }
-                onSave={(v) => void update({ plaidSecret: v || undefined })}
-              />
-              {settings.plaidLinked && (
+              {settings.tellerEnv !== "sandbox" && (
+                <>
+                  <KeyRow
+                    type="text"
+                    placeholder={settings.tellerCertPath ?? "Path to Teller client certificate (.pem)"}
+                    onSave={(v) => void update({ tellerCertPath: v || undefined })}
+                  />
+                  <KeyRow
+                    type="text"
+                    placeholder={settings.tellerKeyPath ?? "Path to Teller private key (.pem)"}
+                    onSave={(v) => void update({ tellerKeyPath: v || undefined })}
+                  />
+                </>
+              )}
+              {settings.tellerLinked && (
                 <SettingRow
-                  title="Linked broker item"
-                  sub="Removes the stored access token (and the item on Plaid's side)."
+                  title="Linked bank enrollment"
+                  sub="Drops the stored access token; revoke the enrollment itself from your bank or the Teller dashboard."
                 >
                   <button
                     className="settings-select-btn"
                     onClick={async () => {
-                      await window.api.plaidUnlink();
+                      await window.api.tellerUnlink();
                       const next = await window.api.getSettings();
                       setSettings(next);
                     }}

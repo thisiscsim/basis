@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApp } from "../store";
 import { runJob } from "../lib/jobs";
-import { relativeTime } from "../lib/time";
 import { Button, Icon } from "./ui";
 import { IpsModal, PortfolioModal } from "./editors";
 
@@ -11,40 +10,8 @@ export function SideRail(): JSX.Element {
   const data = useApp((s) => s.data);
   const saveWatchlist = useApp((s) => s.saveWatchlist);
   const pushNotice = useApp((s) => s.pushNotice);
-  const reloadData = useApp((s) => s.reloadData);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<"portfolio" | "ips" | null>(null);
-  const [plaid, setPlaid] = useState({ hasCredentials: false, linked: false });
-  const [brokerBusy, setBrokerBusy] = useState(false);
-
-  useEffect(() => {
-    window.api
-      ?.getSettings()
-      .then((s) => setPlaid({ hasCredentials: s.hasPlaidCredentials, linked: s.plaidLinked }))
-      .catch(() => {});
-  }, [editing]); // re-check after modals close (Settings may have changed too)
-
-  const brokerAction = async () => {
-    if (brokerBusy) return;
-    setBrokerBusy(true);
-    try {
-      const res = plaid.linked ? await window.api.plaidSync() : await window.api.plaidLink();
-      if (res.ok) {
-        setPlaid((p) => ({ ...p, linked: true }));
-        await reloadData();
-        pushNotice(
-          "info",
-          `Broker sync: ${res.imported ?? 0} holding${res.imported === 1 ? "" : "s"} imported${
-            res.skipped ? `, ${res.skipped} skipped (cash/unmapped)` : ""
-          }.`,
-        );
-      } else if (!res.cancelled) {
-        pushNotice("error", res.error ?? "Broker sync failed.");
-      }
-    } finally {
-      setBrokerBusy(false);
-    }
-  };
 
   if (!data) return <aside className="left-rail" />;
 
@@ -133,22 +100,6 @@ export function SideRail(): JSX.Element {
           <Button variant="secondary" size="sm" icon="input-form" onClick={() => setEditing("portfolio")}>
             Edit holdings
           </Button>
-          {plaid.hasCredentials && (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                icon="arrow-rotate"
-                disabled={brokerBusy}
-                onClick={() => void brokerAction()}
-              >
-                {brokerBusy ? "Syncing…" : plaid.linked ? "Sync from broker" : "Connect broker"}
-              </Button>
-              {data.portfolio.lastSyncedAt && (
-                <p className="rail-note">Synced {relativeTime(data.portfolio.lastSyncedAt)} (read-only)</p>
-              )}
-            </>
-          )}
         </div>
       </section>
 

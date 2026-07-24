@@ -32,9 +32,10 @@ export interface AppSettings {
   edgarContact?: string;
   pricesProvider: "yahoo" | "tiingo";
   pricesApiKey?: string;
-  plaidClientId?: string;
-  plaidSecret?: string;
-  plaidEnv: "sandbox" | "production";
+  tellerAppId?: string;
+  tellerEnv: "sandbox" | "development" | "production";
+  tellerCertPath?: string;
+  tellerKeyPath?: string;
 }
 
 /**
@@ -42,11 +43,10 @@ export interface AppSettings {
  * values, plus booleans for whether each is set. The UI only ever needs "is
  * it configured", never the secret itself, so plaintext never crosses IPC.
  */
-export type PublicSettings = Omit<AppSettings, "agentApiKey" | "pricesApiKey" | "plaidSecret"> & {
+export type PublicSettings = Omit<AppSettings, "agentApiKey" | "pricesApiKey"> & {
   hasAgentKey: boolean;
   hasPricesKey: boolean;
-  hasPlaidCredentials: boolean;
-  plaidLinked: boolean;
+  tellerLinked: boolean;
 };
 
 export interface SaveResult {
@@ -98,10 +98,11 @@ export interface BacktestSummary {
   benchmarkCagrPct: number;
 }
 
-export interface PlaidSyncResult {
+export interface TellerSyncResult {
   ok: boolean;
-  imported?: number;
-  skipped?: number;
+  assets?: number;
+  debts?: number;
+  suggestions?: number;
   cancelled?: boolean;
   error?: string;
 }
@@ -168,10 +169,10 @@ const api = {
   startPaperMark: (): Promise<JobResult> => ipcRenderer.invoke("paper:mark"),
   startLifePlan: (): Promise<JobResult> => ipcRenderer.invoke("lifeplan:start"),
 
-  // Read-only broker sync (Plaid)
-  plaidLink: (): Promise<PlaidSyncResult> => ipcRenderer.invoke("plaid:link"),
-  plaidSync: (): Promise<PlaidSyncResult> => ipcRenderer.invoke("plaid:sync"),
-  plaidUnlink: (): Promise<SaveResult> => ipcRenderer.invoke("plaid:unlink"),
+  // Read-only bank sync (Teller)
+  tellerLink: (): Promise<TellerSyncResult> => ipcRenderer.invoke("teller:link"),
+  tellerSync: (): Promise<TellerSyncResult> => ipcRenderer.invoke("teller:sync"),
+  tellerUnlink: (): Promise<SaveResult> => ipcRenderer.invoke("teller:unlink"),
 
   // Chat + friction gate
   sendChat: (input: { mode: "tutor" | "coach"; messages: ChatMessage[] }): Promise<ChatResult> =>
