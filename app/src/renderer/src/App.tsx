@@ -5,6 +5,7 @@ import { DigestView } from "./components/DigestView";
 import { ResearchView } from "./components/ResearchView";
 import { CoachView } from "./components/CoachView";
 import { LabView } from "./components/LabView";
+import { PlanView } from "./components/PlanView";
 import { useApp, type AppTab, type Notice, type PanelId } from "./store";
 
 // The shell re-renders on panel resize, notices, etc. These panels take no
@@ -57,6 +58,16 @@ export function App(): JSX.Element {
               briefs: res.briefs ?? [],
               ideas: res.ideas ?? { version: 1, ideas: [] },
               graph: res.graph ?? { version: 1, edges: [] },
+              finances: res.finances ?? {
+                version: 1,
+                income: { netMonthly: 0 },
+                fixedMonthly: [],
+                debts: [],
+                assets: [],
+                savingsMonthly: [],
+              },
+              goals: res.goals ?? { version: 1, goals: [] },
+              lifeplan: res.lifeplan ?? null,
               paper: res.paper ?? {
                 version: 1,
                 startCash: 100_000,
@@ -121,6 +132,8 @@ function TabBody({ tab }: { tab: AppTab }): JSX.Element {
       return <CoachView />;
     case "lab":
       return <LabView />;
+    case "plan":
+      return <PlanView />;
     default: {
       const exhaustive: never = tab;
       return exhaustive;

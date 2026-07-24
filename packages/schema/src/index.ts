@@ -1,6 +1,9 @@
 import {
   AlertsSchema,
   BacktestSchema,
+  FinancesSchema,
+  GoalsSchema,
+  LifePlanSchema,
   BriefSchema,
   DigestSchema,
   GraphSchema,
@@ -18,8 +21,11 @@ import type {
   Backtest,
   Brief,
   Digest,
+  Finances,
+  Goals,
   Graph,
   Ideas,
+  LifePlan,
   Ips,
   Meta,
   PaperAccount,
@@ -86,6 +92,18 @@ export function parsePlan(input: unknown): Plan {
 
 export function parseGraph(input: unknown): Graph {
   return GraphSchema.parse(input ?? {});
+}
+
+export function parseFinances(input: unknown): Finances {
+  return FinancesSchema.parse(input ?? {});
+}
+
+export function parseGoals(input: unknown): Goals {
+  return GoalsSchema.parse(input ?? {});
+}
+
+export function parseLifePlan(input: unknown): LifePlan {
+  return LifePlanSchema.parse(input ?? {});
 }
 
 export interface BriefParseResult {

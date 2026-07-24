@@ -5,9 +5,12 @@ import type {
   BacktestConfig,
   Brief,
   Digest,
+  Finances,
+  Goals,
   Graph,
   Ideas,
   Ips,
+  LifePlan,
   PaperAccount,
   Plan,
   Portfolio,
@@ -77,6 +80,9 @@ export interface LoadDataResult {
   briefs?: BriefSummary[];
   ideas?: Ideas;
   graph?: Graph;
+  finances?: Finances;
+  goals?: Goals;
+  lifeplan?: LifePlan | null;
   paper?: PaperAccount;
   plan?: Plan;
   backtests?: BacktestSummary[];
@@ -146,6 +152,8 @@ const api = {
   saveAlerts: (doc: Alerts): Promise<SaveResult> => ipcRenderer.invoke("alerts:save", doc),
   savePaper: (doc: PaperAccount): Promise<SaveResult> => ipcRenderer.invoke("paper:save", doc),
   savePlan: (doc: Plan): Promise<SaveResult> => ipcRenderer.invoke("plan:save", doc),
+  saveFinances: (doc: Finances): Promise<SaveResult> => ipcRenderer.invoke("finances:save", doc),
+  saveGoals: (doc: Goals): Promise<SaveResult> => ipcRenderer.invoke("goals:save", doc),
   listBriefs: (): Promise<BriefSummary[]> => ipcRenderer.invoke("briefs:list"),
   loadBrief: (file: string): Promise<Brief | null> => ipcRenderer.invoke("brief:load", file),
   loadBacktest: (file: string): Promise<Backtest | null> => ipcRenderer.invoke("backtest:load", file),
@@ -158,6 +166,7 @@ const api = {
   startBacktest: (config: Partial<BacktestConfig>): Promise<JobResult> =>
     ipcRenderer.invoke("backtest:start", config),
   startPaperMark: (): Promise<JobResult> => ipcRenderer.invoke("paper:mark"),
+  startLifePlan: (): Promise<JobResult> => ipcRenderer.invoke("lifeplan:start"),
 
   // Read-only broker sync (Plaid)
   plaidLink: (): Promise<PlaidSyncResult> => ipcRenderer.invoke("plaid:link"),

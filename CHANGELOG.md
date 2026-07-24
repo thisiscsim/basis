@@ -7,6 +7,24 @@ versions.
 
 ## [Unreleased]
 
+### Added (life plan — snapshot, goals, projections)
+
+- **Financial snapshot** (`finances.json`) — income, fixed monthly costs,
+  debts (balance/APR/minimum), non-brokerage assets, and committed savings,
+  edited Conscious-Spending-Plan style on the new **Plan** tab.
+- **Goals** (`goals.json`) — purchase (house down payment, with target date),
+  recurring (trips, $/year), and lifestyle (permanent $/month upgrades),
+  funded in priority order.
+- **Deterministic plan core** (`lifeplan.mjs` + pure `lib/projection.mjs`,
+  known-answer tested): monthly surplus breakdown, debt avalanche schedule
+  (highest APR first, freed minimums roll forward, never-pays-off flagged),
+  purchase-goal feasibility per scenario (funded-by dates or deadline
+  shortfalls), and a 25-year net-worth projection in today's dollars under
+  three named scenarios (conservative 4% / expected 7% / optimistic 10%
+  nominal, 3% inflation — assumptions printed on the chart). Warnings for
+  deficits, unpayable debts, high-APR debt, and underfunded goals.
+  Projections are assumption math, not predictions.
+
 ### Added (Phase 5 — knowledge graph)
 
 - **Relationship extraction** (`graph.json` + `graph-llm.mjs`) — for watched/
