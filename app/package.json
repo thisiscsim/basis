@@ -16,22 +16,24 @@
     "@ai-sdk/openai": "^4.0.4",
     "@ai-sdk/openai-compatible": "^3.0.2",
     "@basis/schema": "0.1.0",
+    "adm-zip": "^0.6.0",
     "ai": "^7.0.9",
+    "pdf-parse": "^2.4.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@storybook/addon-a11y": "^10.5.2",
+    "@storybook/addon-docs": "^10.5.2",
+    "@storybook/react-vite": "^10.5.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^34.0.0",
     "electron-vite": "^3.1.0",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.0",
     "storybook": "^10.5.2",
-    "@storybook/react-vite": "^10.5.2",
-    "@storybook/addon-a11y": "^10.5.2",
-    "@storybook/addon-docs": "^10.5.2"
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
   }
 }

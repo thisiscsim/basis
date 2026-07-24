@@ -67,6 +67,7 @@ export function App(): JSX.Element {
                 savingsMonthly: [],
               },
               goals: res.goals ?? { version: 1, goals: [] },
+              playbooks: res.playbooks ?? [],
               lifeplan: res.lifeplan ?? null,
               paper: res.paper ?? {
                 version: 1,

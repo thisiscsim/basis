@@ -19,6 +19,7 @@ import {
   parseMeta,
   parsePaper,
   parsePlan,
+  parsePlaybook,
   parsePortfolio,
   parseWatchlist,
   parseXray,
@@ -171,6 +172,32 @@ describe("defaults-filling parsers tolerate empty/partial input", () => {
     ).toThrow();
     expect(() => parseLifePlan({ netWorth: [{ year: 1800, byScenario: [] }] })).toThrow();
     expect(() => parseLifePlan({ steps: Array(13).fill({ title: "t" }) })).toThrow();
+  });
+
+  it("playbooks: principle bounds, topics, resume cursor", () => {
+    const pb = parsePlaybook({
+      id: "iwt",
+      sourceFile: "iwt.md",
+      principles: [
+        { id: "p1", topic: "spending", text: "Automate transfers.", quote: "Automate your money." },
+      ],
+    });
+    expect(pb.principles[0].verified).toBe(false);
+    expect(pb.chunksDone).toBe(0);
+    expect(() =>
+      parsePlaybook({
+        id: "x",
+        sourceFile: "s",
+        principles: [{ id: "p", topic: "astrology", text: "t", quote: "q" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      parsePlaybook({
+        id: "x",
+        sourceFile: "s",
+        principles: Array(201).fill({ id: "p", text: "t", quote: "q" }),
+      }),
+    ).toThrow();
   });
 
   it("graph edges require verified-style citations and https URLs", () => {

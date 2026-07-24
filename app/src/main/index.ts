@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import {
   appendFileSync,
+  copyFileSync,
   existsSync,
   type FSWatcher,
   mkdirSync,
@@ -40,6 +41,8 @@ import {
   parseIdeas,
   parseIps,
   parseLifePlan,
+  parsePlaybook,
+  type Playbook,
   parsePaper,
   parsePlan,
   parsePortfolio,
@@ -74,6 +77,8 @@ const DIGEST_SCRIPT = join(SCRIPTS_DIR, "digest-llm.mjs");
 const GRADE_IDEAS_SCRIPT = join(SCRIPTS_DIR, "grade-ideas.mjs");
 const GRAPH_SCRIPT = join(SCRIPTS_DIR, "graph-llm.mjs");
 const LIFEPLAN_SCRIPT = join(SCRIPTS_DIR, "lifeplan.mjs");
+const LIFEPLAN_LLM_SCRIPT = join(SCRIPTS_DIR, "lifeplan-llm.mjs");
+const PLAYBOOK_SCRIPT = join(SCRIPTS_DIR, "playbook-llm.mjs");
 const BACKTEST_SCRIPT = join(SCRIPTS_DIR, "backtest.mjs");
 const PAPER_MARK_SCRIPT = join(SCRIPTS_DIR, "paper-mark.mjs");
 
@@ -264,7 +269,13 @@ process.env["BASIS_CACHE_DIR"] = CACHE_DIR;
  */
 function scaffoldDataDir(): void {
   try {
-    for (const sub of ["briefs", "digests", "filings", join("lab", "backtests")]) {
+    for (const sub of [
+      "briefs",
+      "digests",
+      "filings",
+      join("lab", "backtests"),
+      join("playbooks", "sources"),
+    ]) {
       mkdirSync(join(DATA_DIR, sub), { recursive: true });
     }
     mkdirSync(CACHE_DIR, { recursive: true });
@@ -419,6 +430,25 @@ function listBacktests(): BacktestSummary[] {
   return out.sort((a, b) => (b.generatedAt ?? b.file).localeCompare(a.generatedAt ?? a.file)).slice(0, 20);
 }
 
+const PLAYBOOK_FILE_RE = /^[a-z0-9-]{1,64}\.json$/;
+
+function listPlaybooks(): Playbook[] {
+  const out: Playbook[] = [];
+  try {
+    for (const file of readdirSync(join(DATA_DIR, "playbooks"))) {
+      if (!PLAYBOOK_FILE_RE.test(file)) continue;
+      try {
+        out.push(parsePlaybook(readJsonMaybe(safeDataPath("playbooks", file))));
+      } catch {
+        // skip invalid playbooks
+      }
+    }
+  } catch {
+    // no playbooks dir yet
+  }
+  return out.slice(0, 10);
+}
+
 function latestDigest(): Digest | null {
   try {
     const files = readdirSync(join(DATA_DIR, "digests"))
@@ -457,6 +487,7 @@ function loadData() {
       ideas: parseIdeas(readJsonMaybe(join(DATA_DIR, "ideas.json"))),
       graph: parseGraph(readJsonMaybe(join(DATA_DIR, "graph.json"))),
       finances: parseFinances(readJsonMaybe(join(DATA_DIR, "finances.json"))),
+      playbooks: listPlaybooks(),
       goals: parseGoals(readJsonMaybe(join(DATA_DIR, "goals.json"))),
       lifeplan: readJsonMaybe(join(DATA_DIR, "lifeplan.json"))
         ? parseLifePlan(readJsonMaybe(join(DATA_DIR, "lifeplan.json")))
@@ -916,7 +947,55 @@ app.whenReady().then(() => {
     },
   );
   ipcMain.handle("paper:mark", (event) => runScript(PAPER_MARK_SCRIPT, [], event, "paper"));
-  ipcMain.handle("lifeplan:start", (event) => runScript(LIFEPLAN_SCRIPT, [], event, "lifeplan"));
+  // The cited plan needs a model + playbooks; otherwise the numbers-only pass runs.
+  ipcMain.handle("lifeplan:start", (event) =>
+    runScript(
+      llmInfo().configured && listPlaybooks().length > 0 ? LIFEPLAN_LLM_SCRIPT : LIFEPLAN_SCRIPT,
+      [],
+      event,
+      "lifeplan",
+    ),
+  );
+  ipcMain.handle("playbook:import", async () => {
+    const win = mainWindow ?? BrowserWindow.getFocusedWindow();
+    const opts: Electron.OpenDialogOptions = {
+      title: "Choose a book or notes file to distill",
+      properties: ["openFile"],
+      filters: [{ name: "Books & notes", extensions: ["pdf", "epub", "txt", "md"] }],
+    };
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    if (result.canceled || result.filePaths.length === 0) return { ok: true, canceled: true };
+    try {
+      const source = result.filePaths[0];
+      const name =
+        basename(source)
+          .replace(/[^a-zA-Z0-9 ._-]+/g, "")
+          .slice(-120) || "source.txt";
+      const dest = safeDataPath("playbooks", "sources", name);
+      copyFileSync(source, dest);
+      return { ok: true, file: name };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+  ipcMain.handle("playbook:start", (event, file: string) => {
+    if (typeof file !== "string" || basename(file) !== file) {
+      return Promise.resolve({ ok: false, error: "invalid source file" });
+    }
+    if (!llmInfo().configured) {
+      return Promise.resolve({ ok: false, error: "No model configured (add an API key in Settings)." });
+    }
+    return runScript(PLAYBOOK_SCRIPT, ["--file", file], event, "playbook");
+  });
+  ipcMain.handle("playbook:sources", () => {
+    try {
+      return readdirSync(join(DATA_DIR, "playbooks", "sources")).filter((f) =>
+        /\.(pdf|epub|txt|md)$/i.test(f),
+      );
+    } catch {
+      return [];
+    }
+  });
 
   // ---- Teller (read-only bank sync) ----
   ipcMain.handle("teller:link", async () => {

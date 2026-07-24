@@ -13,6 +13,7 @@ import type {
   LifePlan,
   PaperAccount,
   Plan,
+  Playbook,
   Portfolio,
   Watchlist,
   Xray,
@@ -82,6 +83,7 @@ export interface LoadDataResult {
   graph?: Graph;
   finances?: Finances;
   goals?: Goals;
+  playbooks?: Playbook[];
   lifeplan?: LifePlan | null;
   paper?: PaperAccount;
   plan?: Plan;
@@ -168,6 +170,10 @@ const api = {
     ipcRenderer.invoke("backtest:start", config),
   startPaperMark: (): Promise<JobResult> => ipcRenderer.invoke("paper:mark"),
   startLifePlan: (): Promise<JobResult> => ipcRenderer.invoke("lifeplan:start"),
+  importPlaybookSource: (): Promise<{ ok: boolean; file?: string; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke("playbook:import"),
+  startPlaybook: (file: string): Promise<JobResult> => ipcRenderer.invoke("playbook:start", file),
+  listPlaybookSources: (): Promise<string[]> => ipcRenderer.invoke("playbook:sources"),
 
   // Read-only bank sync (Teller)
   tellerLink: (): Promise<TellerSyncResult> => ipcRenderer.invoke("teller:link"),
