@@ -1,6 +1,7 @@
 {
   "name": "basis-app",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "description": "Basis Electron app — LLM investing copilot.",
   "main": "out/main/index.js",
   "scripts": {
